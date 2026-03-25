@@ -4,7 +4,7 @@
  *   node scripts/test-chat-local.cjs                    # 无 Key → 期望 503
  *   DEEPSEEK_API_KEY=sk-xxx node scripts/test-chat-local.cjs  # 真请求 DeepSeek
  */
-const handler = require('../api/chat.cjs')
+const handler = require('../api/chat.js')
 
 function createRes(label) {
   return {

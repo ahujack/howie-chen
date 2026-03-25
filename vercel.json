@@ -2,10 +2,10 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
-    "api/chat.cjs": {
+    "api/chat.js": {
       "maxDuration": 60
     },
-    "api/health.cjs": {
+    "api/health.js": {
       "maxDuration": 10
     }
   },

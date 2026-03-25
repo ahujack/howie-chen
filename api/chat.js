@@ -1,5 +1,6 @@
 /**
- * 必须用 .cjs：根目录 package.json 含 "type":"module" 时，.js 会被当成 ESM，module.exports 会报错（本地与 Vercel Node 一致）。
+ * 本目录有 package.json "type":"commonjs"，故可用 module.exports；
+ * 根目录仍为 "type":"module"（Vite），互不影响。Vercel 只识别 api/*.js 为 Serverless。
  */
 
 const SYSTEM_PROMPT = `你是「AI Agent」智能助手，面向中文用户。你的方法论与技能锚定在「陈科豪体系」——用于短视频运营、朋友圈营销与内容增长；不要提及薛辉、安老师等其他体系名称。

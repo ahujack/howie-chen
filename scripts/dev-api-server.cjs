@@ -4,8 +4,8 @@
  * 另开终端：curl -s http://127.0.0.1:8787/api/health
  */
 const http = require('http')
-const chatHandler = require('../api/chat.cjs')
-const healthHandler = require('../api/health.cjs')
+const chatHandler = require('../api/chat.js')
+const healthHandler = require('../api/health.js')
 
 const PORT = Number(process.env.PORT || 8787)
 
