@@ -21,7 +21,9 @@ function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
 
-const USE_LOCAL_ONLY = import.meta.env.VITE_USE_LOCAL_CHAT === 'true'
+/** 仅本地 `npm run dev` 生效；生产构建忽略，避免 Vercel 上误配后永远走假回复 */
+const USE_LOCAL_ONLY =
+  import.meta.env.DEV && import.meta.env.VITE_USE_LOCAL_CHAT === 'true'
 
 function RobotMark({ size = 40 }: { size?: number }) {
   return (
@@ -171,7 +173,17 @@ export default function App() {
       }
 
       if (!assistantId) {
-        pushAssistant(uid(), buildLocalReply(text))
+        pushAssistant(
+          uid(),
+          [
+            '未能从 AI 服务取得回复，请按下面排查：',
+            '',
+            `• 错误信息：${result.error}`,
+            '• Vercel → 项目 → Settings → Environment Variables：确认已添加 **DEEPSEEK_API_KEY**，并勾选 **Production**（改完后在 Deployments 里 **Redeploy** 一次）。',
+            '• 不要在生产环境变量里设置 **VITE_USE_LOCAL_CHAT**（该变量只应在本地 .env.local 用于纯前端调试）。',
+            '• 若仍失败，打开浏览器开发者工具 → Network，查看 **/api/chat** 请求的状态码与响应体。',
+          ].join('\n'),
+        )
         return
       }
 

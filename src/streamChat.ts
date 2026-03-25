@@ -14,21 +14,27 @@ export async function consumeChatSse(
     body: JSON.stringify(body),
   })
 
-  const ct = res.headers.get('content-type') || ''
+  const ctHeader = res.headers.get('content-type') || ''
+  const ct = ctHeader.split(';')[0].trim()
 
   if (!res.ok) {
-    if (ct.includes('application/json')) {
-      try {
-        const j = (await res.json()) as { error?: string }
-        return { ok: false, error: j.error || `请求失败（${res.status}）` }
-      } catch {
-        return { ok: false, error: `请求失败（${res.status}）` }
-      }
+    const raw = await res.text().catch(() => '')
+    try {
+      const j = JSON.parse(raw) as { error?: string }
+      if (j?.error) return { ok: false, error: j.error }
+    } catch {
+      /* 非 JSON */
     }
-    return { ok: false, error: `请求失败（${res.status}）` }
+    if (raw && raw.length < 500 && !raw.trimStart().startsWith('<')) {
+      return { ok: false, error: `请求失败（${res.status}）：${raw.slice(0, 240)}` }
+    }
+    return { ok: false, error: `请求失败（HTTP ${res.status}）` }
   }
 
-  if (!ct.includes('text/event-stream') || !res.body) {
+  const isSse =
+    ct === 'text/event-stream' || (res.headers.get('content-type') || '').includes('text/event-stream')
+
+  if (!isSse || !res.body) {
     if (ct.includes('application/json')) {
       try {
         const j = (await res.json()) as { reply?: string }
