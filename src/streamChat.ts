@@ -35,7 +35,7 @@ export async function consumeChatSse(
     ct === 'text/event-stream' || (res.headers.get('content-type') || '').includes('text/event-stream')
 
   if (!isSse || !res.body) {
-    if (ct.includes('application/json')) {
+    if (ctHeader.includes('application/json')) {
       try {
         const j = (await res.json()) as { reply?: string }
         if (j.reply) onDelta(j.reply)
@@ -44,7 +44,7 @@ export async function consumeChatSse(
         return { ok: false, error: '无法解析响应' }
       }
     }
-    return { ok: false, error: '服务器未返回流式数据' }
+    return { ok: false, error: '服务器未返回有效数据' }
   }
 
   const reader = res.body.getReader()

@@ -30,13 +30,10 @@ function parseMessages(body: unknown): ChatTurn[] | null {
   return out.length > 0 ? out : null
 }
 
-function parseOptions(body: unknown): { stream: boolean; webSearch: boolean } {
-  if (!body || typeof body !== 'object') return { stream: false, webSearch: false }
-  const b = body as { stream?: unknown; webSearch?: unknown }
-  return {
-    stream: b.stream === true,
-    webSearch: b.webSearch === true,
-  }
+function parseOptions(body: unknown): { webSearch: boolean } {
+  if (!body || typeof body !== 'object') return { webSearch: false }
+  const b = body as { webSearch?: unknown }
+  return { webSearch: b.webSearch === true }
 }
 
 function parsePersonalContext(body: unknown): string | undefined {
@@ -77,178 +74,114 @@ async function buildTurns(
   ]
 }
 
-function sseWrite(res: VercelResponse, obj: Record<string, unknown>) {
-  res.write(`data: ${JSON.stringify(obj)}\n\n`)
-}
-
-/** 将 DeepSeek/OpenAI 兼容的 SSE 流转成前端消费的精简事件 { t } */
-async function pipeDeepSeekSse(
-  body: ReadableStream<Uint8Array>,
-  res: VercelResponse,
-): Promise<void> {
-  const reader = body.getReader()
-  const dec = new TextDecoder()
-  let carry = ''
-
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    carry += dec.decode(value, { stream: true })
-    const lines = carry.split('\n')
-    carry = lines.pop() ?? ''
-
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (!trimmed.startsWith('data:')) continue
-      const data = trimmed.slice(5).trim()
-      if (data === '[DONE]') continue
-      try {
-        const json = JSON.parse(data) as {
-          choices?: { delta?: { content?: string | null } }[]
-        }
-        const piece = json.choices?.[0]?.delta?.content
-        if (piece) sseWrite(res, { t: piece })
-      } catch {
-        // 忽略无法解析的行
-      }
-    }
-  }
-
-  if (carry.trim()) {
-    const trimmed = carry.trim()
-    if (trimmed.startsWith('data:')) {
-      const data = trimmed.slice(5).trim()
-      if (data && data !== '[DONE]') {
-        try {
-          const json = JSON.parse(data) as {
-            choices?: { delta?: { content?: string | null } }[]
-          }
-          const piece = json.choices?.[0]?.delta?.content
-          if (piece) sseWrite(res, { t: piece })
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  }
-
-  sseWrite(res, { done: true })
-}
-
+/**
+ * Vercel Node Serverless 上 SSE + res.write 易出现 FUNCTION_INVOCATION_FAILED，
+ * 此处统一走 DeepSeek 非流式 JSON，由前端一次性展示（仍走 consumeChatSse 的 JSON 分支）。
+ */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method === 'OPTIONS') {
-    corsJson(res)
-    res.status(204).end()
-    return
-  }
-
-  if (req.method !== 'POST') {
-    corsJson(res)
-    res.status(405).json({ error: 'Method not allowed' })
-    return
-  }
-
-  const key = process.env.DEEPSEEK_API_KEY
-  if (!key) {
-    corsJson(res)
-    res.status(503).json({ error: '未配置 DEEPSEEK_API_KEY' })
-    return
-  }
-
-  const messages = parseMessages(req.body)
-  if (!messages) {
-    corsJson(res)
-    res.status(400).json({ error: '请求体需包含 messages: { role, content }[]' })
-    return
-  }
-
-  const { stream, webSearch } = parseOptions(req.body)
-  const systemContent = buildSystemPrompt(parsePersonalContext(req.body))
-
-  const recent = messages.slice(-24)
-  const last = recent[recent.length - 1]
-  if (!last || last.role !== 'user') {
-    corsJson(res)
-    res.status(400).json({ error: '最后一条须为用户消息' })
-    return
-  }
-
-  const tavilyKey = process.env.TAVILY_API_KEY
-  let turns: ChatTurn[]
   try {
-    turns = await buildTurns(recent, webSearch, tavilyKey)
-  } catch (e) {
-    console.error('Tavily', e)
-    corsJson(res)
-    res.status(502).json({ error: '检索服务异常' })
-    return
-  }
-
-  const payload = {
-    model: 'deepseek-chat',
-    messages: [{ role: 'system' as const, content: systemContent }, ...turns],
-    temperature: 0.6,
-    max_tokens: 4096,
-    stream,
-  }
-
-  const ds = await fetch('https://api.deepseek.com/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${key}`,
-    },
-    body: JSON.stringify(payload),
-  })
-
-  if (!ds.ok) {
-    const errText = await ds.text().catch(() => '')
-    console.error('DeepSeek', ds.status, errText.slice(0, 800))
-    corsJson(res)
-    res.status(502).json({ error: '大模型请求失败，请稍后重试' })
-    return
-  }
-
-  if (stream) {
-    if (!ds.body) {
+    if (req.method === 'OPTIONS') {
       corsJson(res)
-      res.status(502).json({ error: '大模型未返回流' })
+      res.status(204).end()
       return
     }
 
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+    if (req.method !== 'POST') {
+      corsJson(res)
+      res.status(405).json({ error: 'Method not allowed' })
+      return
+    }
+
+    const key = process.env.DEEPSEEK_API_KEY
+    if (!key) {
+      corsJson(res)
+      res.status(503).json({ error: '未配置 DEEPSEEK_API_KEY' })
+      return
+    }
+
+    let body: unknown = req.body
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body) as unknown
+      } catch {
+        corsJson(res)
+        res.status(400).json({ error: '请求体须为 JSON' })
+        return
+      }
+    }
+
+    const messages = parseMessages(body)
+    if (!messages) {
+      corsJson(res)
+      res.status(400).json({ error: '请求体需包含 messages: { role, content }[]' })
+      return
+    }
+
+    const { webSearch } = parseOptions(body)
+    const systemContent = buildSystemPrompt(parsePersonalContext(body))
+
+    const recent = messages.slice(-24)
+    const last = recent[recent.length - 1]
+    if (!last || last.role !== 'user') {
+      corsJson(res)
+      res.status(400).json({ error: '最后一条须为用户消息' })
+      return
+    }
+
+    const tavilyKey = process.env.TAVILY_API_KEY
+    let turns: ChatTurn[]
+    try {
+      turns = await buildTurns(recent, webSearch, tavilyKey)
+    } catch (e) {
+      console.error('Tavily', e)
+      corsJson(res)
+      res.status(502).json({ error: '检索服务异常' })
+      return
+    }
+
+    const payload = {
+      model: 'deepseek-chat',
+      messages: [{ role: 'system' as const, content: systemContent }, ...turns],
+      temperature: 0.6,
+      max_tokens: 4096,
+      stream: false,
+    }
+
+    const ds = await fetch('https://api.deepseek.com/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify(payload),
     })
 
-    const nodeRes = res as VercelResponse & { flushHeaders?: () => void }
-    nodeRes.flushHeaders?.()
-
-    try {
-      await pipeDeepSeekSse(ds.body, res)
-    } catch (e) {
-      console.error('Stream pipe', e)
-      sseWrite(res, { error: '流式输出中断' })
+    if (!ds.ok) {
+      const errText = await ds.text().catch(() => '')
+      console.error('DeepSeek', ds.status, errText.slice(0, 800))
+      corsJson(res)
+      res.status(502).json({ error: '大模型请求失败，请稍后重试' })
+      return
     }
-    res.end()
-    return
-  }
 
-  const json = (await ds.json()) as {
-    choices?: { message?: { content?: string | null } }[]
-  }
-  const reply = json.choices?.[0]?.message?.content?.trim()
-  if (!reply) {
+    const json = (await ds.json()) as {
+      choices?: { message?: { content?: string | null } }[]
+    }
+    const reply = json.choices?.[0]?.message?.content?.trim()
+    if (!reply) {
+      corsJson(res)
+      res.status(502).json({ error: '大模型返回为空' })
+      return
+    }
+
     corsJson(res)
-    res.status(502).json({ error: '大模型返回为空' })
-    return
+    res.status(200).json({ reply })
+  } catch (e) {
+    console.error('api/chat', e)
+    if (!res.headersSent) {
+      corsJson(res)
+      const msg = e instanceof Error ? e.message : '服务器内部错误'
+      res.status(500).json({ error: msg })
+    }
   }
-
-  corsJson(res)
-  res.status(200).json({ reply })
 }

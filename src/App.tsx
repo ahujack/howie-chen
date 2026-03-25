@@ -137,7 +137,7 @@ export default function App() {
       const personal = loadPersonalContext().trim()
       const payload: Record<string, unknown> = {
         messages: nextMessages.map(({ role, content }) => ({ role, content })),
-        stream: true,
+        stream: false,
         webSearch: useWeb,
       }
       if (personal) payload.personalContext = personal
