@@ -1,5 +1,5 @@
 /**
- * CommonJS + 单文件：避免根目录 "type":"module" 下 Vercel 对 api/*.ts 打包出现 FUNCTION_INVOCATION_FAILED
+ * 必须用 .cjs：根目录 package.json 含 "type":"module" 时，.js 会被当成 ESM，module.exports 会报错（本地与 Vercel Node 一致）。
  */
 
 const SYSTEM_PROMPT = `你是「AI Agent」智能助手，面向中文用户。你的方法论与技能锚定在「陈科豪体系」——用于短视频运营、朋友圈营销与内容增长；不要提及薛辉、安老师等其他体系名称。
