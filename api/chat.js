@@ -1,27 +1,37 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { SYSTEM_PROMPT } from './prompt'
-import { searchTavily } from './tavily'
+/**
+ * CommonJS + 单文件：避免根目录 "type":"module" 下 Vercel 对 api/*.ts 打包出现 FUNCTION_INVOCATION_FAILED
+ */
 
-type Role = 'user' | 'assistant'
+const SYSTEM_PROMPT = `你是「AI Agent」智能助手，面向中文用户。你的方法论与技能锚定在「陈科豪体系」——用于短视频运营、朋友圈营销与内容增长；不要提及薛辉、安老师等其他体系名称。
 
-type ChatTurn = { role: Role; content: string }
+## 你能提供的核心能力（按用户意图调用）
+- 爆款选题：人设校验、情绪标注、批量选题方向。
+- 口播脚本：情绪曲线、注意力管理、分段节奏。
+- 开头优化：前 3 秒、多种钩子思路。
+- 账号诊断：价值/用户/人设/类型/风格五维与内容线规划。
+- 爆款拆解：动力结构、可复用模板、迁移建议。
+- 内容复盘：数据归因、迭代动作清单。
+- 朋友圈营销：四阶段（埋种子→塑价值→造期待→引爆发）共约 20 条文案思路。
+- 代码执行：可审阅 Python/Node 代码、讲清步骤与风险；真实沙箱执行需在服务端受控环境完成，若用户要求「直接运行」，说明安全边界并给出可本地复制的命令或伪执行结果。
+- 联网：当用户消息中出现「【网络检索结果】」段落时，必须结合其中要点作答，并提醒时效性；勿编造检索条目中不存在的链接。
 
-function corsJson(res: VercelResponse) {
+## 风格
+专业、清晰、可执行；优先给结构化的步骤、清单或小标题；避免空话套话。`
+
+function corsJson(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 }
 
-function parseMessages(body: unknown): ChatTurn[] | null {
+function parseMessages(body) {
   if (!body || typeof body !== 'object') return null
-  const raw = (body as { messages?: unknown }).messages
+  const raw = body.messages
   if (!Array.isArray(raw)) return null
-
-  const out: ChatTurn[] = []
+  const out = []
   for (const m of raw) {
     if (!m || typeof m !== 'object') continue
-    const role = (m as { role?: string }).role
-    const content = (m as { content?: string }).content
+    const { role, content } = m
     if ((role === 'user' || role === 'assistant') && typeof content === 'string') {
       const c = content.slice(0, 32000)
       if (c.length > 0) out.push({ role, content: c })
@@ -30,22 +40,21 @@ function parseMessages(body: unknown): ChatTurn[] | null {
   return out.length > 0 ? out : null
 }
 
-function parseOptions(body: unknown): { webSearch: boolean } {
+function parseOptions(body) {
   if (!body || typeof body !== 'object') return { webSearch: false }
-  const b = body as { webSearch?: unknown }
-  return { webSearch: b.webSearch === true }
+  return { webSearch: body.webSearch === true }
 }
 
-function parsePersonalContext(body: unknown): string | undefined {
+function parsePersonalContext(body) {
   if (!body || typeof body !== 'object') return undefined
-  const p = (body as { personalContext?: unknown }).personalContext
+  const p = body.personalContext
   if (typeof p !== 'string') return undefined
   const t = p.trim()
   if (!t) return undefined
   return t.slice(0, 8000)
 }
 
-function buildSystemPrompt(personal?: string): string {
+function buildSystemPrompt(personal) {
   if (!personal) return SYSTEM_PROMPT
   return `${SYSTEM_PROMPT}
 
@@ -53,17 +62,50 @@ function buildSystemPrompt(personal?: string): string {
 ${personal}`
 }
 
-async function buildTurns(
-  recent: ChatTurn[],
-  webSearch: boolean,
-  tavilyKey: string | undefined,
-): Promise<ChatTurn[]> {
+async function searchTavily(query, apiKey) {
+  const q = query.trim().slice(0, 400)
+  if (!q) return null
+  const res = await fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      api_key: apiKey,
+      query: q,
+      max_results: 6,
+      include_answer: true,
+      search_depth: 'basic',
+    }),
+  })
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '')
+    console.error('Tavily HTTP', res.status, errText.slice(0, 500))
+    return null
+  }
+  const data = await res.json()
+  const lines = []
+  if (data.answer) {
+    lines.push('摘要：', data.answer, '')
+  }
+  const results = data.results ?? []
+  if (results.length > 0) {
+    lines.push('摘录：')
+    results.forEach((r, i) => {
+      const title = r.title ?? '无标题'
+      const url = r.url ?? ''
+      const snippet = (r.content ?? '').replace(/\s+/g, ' ').slice(0, 360)
+      lines.push(`${i + 1}. ${title}${url ? ` — ${url}` : ''}`)
+      if (snippet) lines.push(`   ${snippet}`)
+    })
+  }
+  if (lines.length === 0) return null
+  return lines.join('\n')
+}
+
+async function buildTurns(recent, webSearch, tavilyKey) {
   const last = recent[recent.length - 1]
   if (!webSearch || !tavilyKey) return recent
-
   const ctx = await searchTavily(last.content, tavilyKey)
   if (!ctx) return recent
-
   const head = recent.slice(0, -1)
   return [
     ...head,
@@ -74,11 +116,7 @@ async function buildTurns(
   ]
 }
 
-/**
- * Vercel Node Serverless 上 SSE + res.write 易出现 FUNCTION_INVOCATION_FAILED，
- * 此处统一走 DeepSeek 非流式 JSON，由前端一次性展示（仍走 consumeChatSse 的 JSON 分支）。
- */
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+module.exports = async function handler(req, res) {
   try {
     if (req.method === 'OPTIONS') {
       corsJson(res)
@@ -99,10 +137,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return
     }
 
-    let body: unknown = req.body
+    let body = req.body
     if (typeof body === 'string') {
       try {
-        body = JSON.parse(body) as unknown
+        body = JSON.parse(body)
       } catch {
         corsJson(res)
         res.status(400).json({ error: '请求体须为 JSON' })
@@ -129,7 +167,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const tavilyKey = process.env.TAVILY_API_KEY
-    let turns: ChatTurn[]
+    let turns
     try {
       turns = await buildTurns(recent, webSearch, tavilyKey)
     } catch (e) {
@@ -141,7 +179,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const payload = {
       model: 'deepseek-chat',
-      messages: [{ role: 'system' as const, content: systemContent }, ...turns],
+      messages: [{ role: 'system', content: systemContent }, ...turns],
       temperature: 0.6,
       max_tokens: 4096,
       stream: false,
@@ -164,9 +202,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return
     }
 
-    const json = (await ds.json()) as {
-      choices?: { message?: { content?: string | null } }[]
-    }
+    const json = await ds.json()
     const reply = json.choices?.[0]?.message?.content?.trim()
     if (!reply) {
       corsJson(res)

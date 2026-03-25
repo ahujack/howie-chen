@@ -21,11 +21,12 @@ export default defineConfig([
     },
   },
   {
-    files: ['api/**/*.ts'],
-    extends: [js.configs.recommended, tseslint.configs.recommended],
+    files: ['api/**/*.js'],
+    extends: [js.configs.recommended],
     languageOptions: {
-      ecmaVersion: 2020,
+      ecmaVersion: 2022,
       globals: globals.node,
+      sourceType: 'commonjs',
     },
   },
 ])
