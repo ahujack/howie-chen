@@ -3,6 +3,17 @@
  * 根目录仍为 "type":"module"（Vite），互不影响。Vercel 只识别 api/*.js 为 Serverless。
  */
 
+const fs = require('fs')
+const path = require('path')
+
+/** OpenClaw / 方面陈 内容创作知识库（与仓库 api/kb-howie-content.md 同步；vercel.json includeFiles 需包含该文件） */
+let HOWIE_KB_MD = ''
+try {
+  HOWIE_KB_MD = fs.readFileSync(path.join(__dirname, 'kb-howie-content.md'), 'utf8')
+} catch (e) {
+  console.warn('[chat] kb-howie-content.md 未读取:', e && e.message)
+}
+
 const SYSTEM_PROMPT = `你是「AI Agent」智能助手，面向中文用户。你的方法论与技能锚定在「陈科豪体系」——用于短视频运营、朋友圈营销与内容增长；不要提及薛辉、安老师等其他体系名称。
 
 ## 你能提供的核心能力（按用户意图调用）
@@ -42,8 +53,13 @@ function parseMessages(body) {
 }
 
 function parseOptions(body) {
-  if (!body || typeof body !== 'object') return { webSearch: false }
-  return { webSearch: body.webSearch === true }
+  if (!body || typeof body !== 'object') {
+    return { webSearch: false, howieKnowledgeBase: true }
+  }
+  const webSearch = body.webSearch === true
+  /** 默认开启；传 howieKnowledgeBase: false 可关闭以省上下文 */
+  const howieKnowledgeBase = body.howieKnowledgeBase !== false
+  return { webSearch, howieKnowledgeBase }
 }
 
 function parsePersonalContext(body) {
@@ -55,12 +71,22 @@ function parsePersonalContext(body) {
   return t.slice(0, 8000)
 }
 
-function buildSystemPrompt(personal) {
-  if (!personal) return SYSTEM_PROMPT
-  return `${SYSTEM_PROMPT}
-
-## 用户个人参考（请贴近其语气、节奏与结构偏好；勿编造用户未提供的事实或数据）
-${personal}`
+function buildSystemPrompt(personal, useHowieKb) {
+  const parts = [SYSTEM_PROMPT]
+  if (useHowieKb && HOWIE_KB_MD) {
+    const kb = HOWIE_KB_MD.length > 28000 ? HOWIE_KB_MD.slice(0, 28000) + '\n\n…(知识库已截断)' : HOWIE_KB_MD
+    parts.push(
+      `---\n## 方面陈（Howie）内容创作知识库（OpenClaw Skill）\n` +
+        `当用户需要口播/脚本/朋友圈/选题/爆款结构时，必须优先遵守下列人设、禁忌、节奏与案例；` +
+        `若用户明确要求其他风格或虚构场景，再按其说明调整。\n\n${kb}`,
+    )
+  }
+  if (personal) {
+    parts.push(
+      `## 用户个人参考（请贴近其语气、节奏与结构偏好；勿编造用户未提供的事实或数据）\n${personal}`,
+    )
+  }
+  return parts.join('\n\n')
 }
 
 async function searchTavily(query, apiKey) {
@@ -156,8 +182,8 @@ module.exports = async function handler(req, res) {
       return
     }
 
-    const { webSearch } = parseOptions(body)
-    const systemContent = buildSystemPrompt(parsePersonalContext(body))
+    const { webSearch, howieKnowledgeBase } = parseOptions(body)
+    const systemContent = buildSystemPrompt(parsePersonalContext(body), howieKnowledgeBase)
 
     const recent = messages.slice(-24)
     const last = recent[recent.length - 1]

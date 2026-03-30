@@ -3,7 +3,8 @@
   "outputDirectory": "dist",
   "functions": {
     "api/chat.js": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "includeFiles": "api/kb-howie-content.md"
     },
     "api/health.js": {
       "maxDuration": 10

@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { buildLocalReply } from './chatReply'
 import { HERO_GREETING, HERO_INTRO, QUICK_CHIPS, WELCOME_MESSAGE } from './copy'
-import { loadPersonalContext, savePersonalContext } from './personalStorage'
+import {
+  loadHowieKnowledgeBase,
+  loadPersonalContext,
+  saveHowieKnowledgeBase,
+  savePersonalContext,
+} from './personalStorage'
 import { consumeChatSse } from './streamChat'
 import './App.css'
 
@@ -78,6 +83,7 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [awaitingToken, setAwaitingToken] = useState(false)
   const [personalDraft, setPersonalDraft] = useState(loadPersonalContext)
+  const [howieKnowledgeBase, setHowieKnowledgeBase] = useState(loadHowieKnowledgeBase)
   const listRef = useRef<HTMLDivElement>(null)
   const messagesRef = useRef(messages)
 
@@ -141,6 +147,7 @@ export default function App() {
         webSearch: useWeb,
       }
       if (personal) payload.personalContext = personal
+      payload.howieKnowledgeBase = howieKnowledgeBase
 
       let assistantId: string | null = null
 
@@ -195,7 +202,7 @@ export default function App() {
         return n
       })
     },
-    [busy, webSearch],
+    [busy, webSearch, howieKnowledgeBase],
   )
 
   const onSubmit = (e: React.FormEvent) => {
@@ -263,6 +270,19 @@ export default function App() {
               disabled={busy}
             />
             <span>联网搜索</span>
+          </label>
+          <label className="web-toggle">
+            <input
+              type="checkbox"
+              checked={howieKnowledgeBase}
+              onChange={(e) => {
+                const on = e.target.checked
+                setHowieKnowledgeBase(on)
+                saveHowieKnowledgeBase(on)
+              }}
+              disabled={busy}
+            />
+            <span>方面陈知识库</span>
           </label>
           <details className="dock-personal">
             <summary>个人风格（本机）</summary>
