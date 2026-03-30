@@ -36,6 +36,69 @@ function corsJson(res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 }
 
+/** 流式响应同样需 CORS，否则浏览器读不到 event-stream */
+function corsSse(res) {
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+}
+
+/**
+ * 读取 DeepSeek（OpenAI 兼容）的 SSE，转发为前端约定的 data: {"t":"片段"}
+ */
+async function pipeDeepSeekSseToClient(dsResponse, res) {
+  if (!dsResponse.body) {
+    res.write(`data: ${JSON.stringify({ error: '模型未返回流式正文' })}\n\n`)
+    return
+  }
+  const reader = dsResponse.body.getReader()
+  const dec = new TextDecoder()
+  let carry = ''
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      carry += dec.decode(value, { stream: true })
+      const lines = carry.split('\n')
+      carry = lines.pop() ?? ''
+      for (const line of lines) {
+        const trimmed = line.trimEnd()
+        if (!trimmed.startsWith('data:')) continue
+        const raw = trimmed.slice(5).trim()
+        if (raw === '[DONE]') continue
+        let j
+        try {
+          j = JSON.parse(raw)
+        } catch {
+          continue
+        }
+        const errObj = j.error
+        const errMsg =
+          errObj && typeof errObj === 'object'
+            ? errObj.message || String(errObj)
+            : typeof errObj === 'string'
+              ? errObj
+              : null
+        if (errMsg) {
+          res.write(`data: ${JSON.stringify({ error: errMsg })}\n\n`)
+          return
+        }
+        const piece = j.choices?.[0]?.delta?.content
+        if (typeof piece === 'string' && piece.length > 0) {
+          res.write(`data: ${JSON.stringify({ t: piece })}\n\n`)
+        }
+      }
+    }
+  } finally {
+    try {
+      reader.releaseLock()
+    } catch {
+      /* ignore */
+    }
+  }
+  res.write(`data: ${JSON.stringify({ done: true })}\n\n`)
+}
+
 function parseMessages(body) {
   if (!body || typeof body !== 'object') return null
   const raw = body.messages
@@ -54,12 +117,14 @@ function parseMessages(body) {
 
 function parseOptions(body) {
   if (!body || typeof body !== 'object') {
-    return { webSearch: false, howieKnowledgeBase: true }
+    return { webSearch: false, howieKnowledgeBase: true, stream: true }
   }
   const webSearch = body.webSearch === true
   /** 默认开启；传 howieKnowledgeBase: false 可关闭以省上下文 */
   const howieKnowledgeBase = body.howieKnowledgeBase !== false
-  return { webSearch, howieKnowledgeBase }
+  /** 默认流式；传 stream: false 时走整包 JSON（便于测试或特殊客户端） */
+  const stream = body.stream !== false
+  return { webSearch, howieKnowledgeBase, stream }
 }
 
 function parsePersonalContext(body) {
@@ -89,9 +154,18 @@ function buildSystemPrompt(personal, useHowieKb) {
   return parts.join('\n\n')
 }
 
-async function searchTavily(query, apiKey) {
+/**
+ * @returns {{ ctx: string | null, preview: { query: string, answer?: string, items: Array<{title:string,url:string,snippet:string}>, message?: string } }}
+ */
+async function searchTavilyFull(query, apiKey) {
   const q = query.trim().slice(0, 400)
-  if (!q) return null
+  const previewBase = { query: q.slice(0, 200), items: [] }
+  if (!q) {
+    return {
+      ctx: null,
+      preview: { ...previewBase, message: '检索关键词为空' },
+    }
+  }
   const res = await fetch('https://api.tavily.com/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -106,14 +180,27 @@ async function searchTavily(query, apiKey) {
   if (!res.ok) {
     const errText = await res.text().catch(() => '')
     console.error('Tavily HTTP', res.status, errText.slice(0, 500))
-    return null
+    return {
+      ctx: null,
+      preview: { ...previewBase, message: '检索服务暂时不可用' },
+    }
   }
   const data = await res.json()
+  const results = data.results ?? []
+  const items = results.map((r) => ({
+    title: r.title ?? '无标题',
+    url: r.url ?? '',
+    snippet: (r.content ?? '').replace(/\s+/g, ' ').slice(0, 220),
+  }))
+  const preview = {
+    query: q.slice(0, 200),
+    answer: typeof data.answer === 'string' && data.answer.trim() ? data.answer.trim() : undefined,
+    items,
+  }
   const lines = []
   if (data.answer) {
     lines.push('摘要：', data.answer, '')
   }
-  const results = data.results ?? []
   if (results.length > 0) {
     lines.push('摘录：')
     results.forEach((r, i) => {
@@ -124,14 +211,19 @@ async function searchTavily(query, apiKey) {
       if (snippet) lines.push(`   ${snippet}`)
     })
   }
-  if (lines.length === 0) return null
-  return lines.join('\n')
+  if (lines.length === 0) {
+    return {
+      ctx: null,
+      preview: { ...preview, message: '未返回可用摘要或条目' },
+    }
+  }
+  return { ctx: lines.join('\n'), preview }
 }
 
 async function buildTurns(recent, webSearch, tavilyKey) {
   const last = recent[recent.length - 1]
   if (!webSearch || !tavilyKey) return recent
-  const ctx = await searchTavily(last.content, tavilyKey)
+  const { ctx } = await searchTavilyFull(last.content, tavilyKey)
   if (!ctx) return recent
   const head = recent.slice(0, -1)
   return [
@@ -182,7 +274,7 @@ module.exports = async function handler(req, res) {
       return
     }
 
-    const { webSearch, howieKnowledgeBase } = parseOptions(body)
+    const { webSearch, howieKnowledgeBase, stream } = parseOptions(body)
     const systemContent = buildSystemPrompt(parsePersonalContext(body), howieKnowledgeBase)
 
     const recent = messages.slice(-24)
@@ -194,51 +286,155 @@ module.exports = async function handler(req, res) {
     }
 
     const tavilyKey = process.env.TAVILY_API_KEY
-    let turns
-    try {
-      turns = await buildTurns(recent, webSearch, tavilyKey)
-    } catch (e) {
-      console.error('Tavily', e)
-      corsJson(res)
-      res.status(502).json({ error: '检索服务异常' })
-      return
-    }
 
-    const payload = {
+    const payloadBaseForTurns = (turns) => ({
       model: 'deepseek-chat',
       messages: [{ role: 'system', content: systemContent }, ...turns],
       temperature: 0.6,
       max_tokens: 4096,
-      stream: false,
-    }
-
-    const ds = await fetch('https://api.deepseek.com/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify(payload),
     })
 
-    if (!ds.ok) {
-      const errText = await ds.text().catch(() => '')
-      console.error('DeepSeek', ds.status, errText.slice(0, 800))
+    if (!stream) {
+      let turns
+      try {
+        turns = await buildTurns(recent, webSearch, tavilyKey)
+      } catch (e) {
+        console.error('Tavily', e)
+        corsJson(res)
+        res.status(502).json({ error: '检索服务异常' })
+        return
+      }
+
+      const payloadBase = payloadBaseForTurns(turns)
+      const payload = { ...payloadBase, stream: false }
+      const ds = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify(payload),
+      })
+
+      if (!ds.ok) {
+        const errText = await ds.text().catch(() => '')
+        console.error('DeepSeek', ds.status, errText.slice(0, 800))
+        corsJson(res)
+        res.status(502).json({ error: '大模型请求失败，请稍后重试' })
+        return
+      }
+
+      const json = await ds.json()
+      const reply = json.choices?.[0]?.message?.content?.trim()
+      if (!reply) {
+        corsJson(res)
+        res.status(502).json({ error: '大模型返回为空' })
+        return
+      }
+
       corsJson(res)
-      res.status(502).json({ error: '大模型请求失败，请稍后重试' })
+      res.status(200).json({ reply })
       return
     }
 
-    const json = await ds.json()
-    const reply = json.choices?.[0]?.message?.content?.trim()
-    if (!reply) {
-      corsJson(res)
-      res.status(502).json({ error: '大模型返回为空' })
-      return
+    /** 流式：先开 SSE，再检索（推送进度），最后拉模型流 */
+    corsSse(res)
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
+    res.setHeader('Cache-Control', 'no-cache, no-transform')
+    res.setHeader('Connection', 'keep-alive')
+    res.setHeader('X-Accel-Buffering', 'no')
+
+    if (typeof res.status === 'function') res.status(200)
+    else res.statusCode = 200
+
+    try {
+      if (typeof res.flushHeaders === 'function') res.flushHeaders()
+    } catch {
+      /* 部分环境无 flushHeaders */
     }
 
-    corsJson(res)
-    res.status(200).json({ reply })
+    const writeSse = (obj) => {
+      res.write(`data: ${JSON.stringify(obj)}\n\n`)
+    }
+
+    let turns = recent
+    try {
+      const lastQ = (last.content || '').slice(0, 200)
+      if (webSearch && tavilyKey) {
+        writeSse({
+          meta: {
+            phase: 'searching',
+            query: lastQ,
+          },
+        })
+        const { ctx, preview } = await searchTavilyFull(last.content, tavilyKey)
+        writeSse({
+          meta: {
+            phase: 'search_done',
+            query: preview.query || lastQ,
+            answer: preview.answer,
+            items: preview.items,
+            message: preview.message,
+            injected: Boolean(ctx),
+          },
+        })
+        if (ctx) {
+          const head = recent.slice(0, -1)
+          turns = [
+            ...head,
+            {
+              role: 'user',
+              content: `${last.content}\n\n---\n【网络检索结果】（Tavily）\n${ctx}`,
+            },
+          ]
+        }
+      } else if (webSearch && !tavilyKey) {
+        writeSse({
+          meta: {
+            phase: 'search_skipped',
+            message: '未配置联网检索密钥（TAVILY_API_KEY），已跳过网页检索',
+          },
+        })
+        turns = recent
+      }
+
+      writeSse({ meta: { phase: 'generating' } })
+
+      const payloadStream = { ...payloadBaseForTurns(turns), stream: true }
+      const ds = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify(payloadStream),
+      })
+
+      if (!ds.ok) {
+        const errText = await ds.text().catch(() => '')
+        console.error('DeepSeek stream', ds.status, errText.slice(0, 800))
+        writeSse({ error: '大模型请求失败，请稍后重试' })
+        res.end()
+        return
+      }
+
+      await pipeDeepSeekSseToClient(ds, res)
+      res.end()
+    } catch (e) {
+      console.error('api/chat stream', e)
+      if (!res.headersSent) {
+        corsJson(res)
+        const msg = e instanceof Error ? e.message : '流式输出失败'
+        res.status(500).json({ error: msg })
+      } else {
+        try {
+          writeSse({ error: e instanceof Error ? e.message : '流式输出中断' })
+        } catch {
+          /* ignore */
+        }
+        res.end()
+      }
+    }
   } catch (e) {
     console.error('api/chat', e)
     if (!res.headersSent) {

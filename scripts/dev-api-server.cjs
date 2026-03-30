@@ -20,6 +20,13 @@ function attachVercelLikeRes(nodeRes) {
       this._status = code
       return this
     },
+    write(chunk) {
+      if (!this.headersSent) {
+        nodeRes.writeHead(this._status)
+        this.headersSent = true
+      }
+      nodeRes.write(chunk, 'utf8')
+    },
     end(chunk) {
       if (!this.headersSent) {
         nodeRes.writeHead(this._status)

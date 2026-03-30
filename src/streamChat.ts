@@ -1,12 +1,74 @@
 type StreamResult = { ok: true } | { ok: false; error: string }
 
+export type ChatStreamMeta =
+  | { phase: 'searching'; query: string }
+  | {
+      phase: 'search_done'
+      query: string
+      answer?: string
+      items: Array<{ title: string; url: string; snippet: string }>
+      message?: string
+      injected?: boolean
+    }
+  | { phase: 'search_skipped'; message?: string; reason?: string }
+  | { phase: 'generating' }
+
+export type WaitPanelState = {
+  phase: 'connecting' | 'searching' | 'search_done' | 'search_skipped' | 'generating'
+  query?: string
+  answer?: string
+  items?: Array<{ title: string; url: string; snippet: string }>
+  message?: string
+  injected?: boolean
+  skipMessage?: string
+}
+
+export function mergeMetaToWaitState(
+  prev: WaitPanelState | null,
+  meta: ChatStreamMeta,
+): WaitPanelState {
+  if (meta.phase === 'searching') {
+    return { phase: 'searching', query: meta.query }
+  }
+  if (meta.phase === 'search_done') {
+    return {
+      phase: 'search_done',
+      query: meta.query,
+      answer: meta.answer,
+      items: meta.items ?? [],
+      message: meta.message,
+      injected: meta.injected,
+    }
+  }
+  if (meta.phase === 'search_skipped') {
+    return {
+      phase: 'search_skipped',
+      skipMessage: meta.message ?? '已跳过联网检索',
+    }
+  }
+  if (meta.phase === 'generating') {
+    const base = prev ?? { phase: 'connecting' as const }
+    return {
+      phase: 'generating',
+      query: base.query,
+      answer: base.answer,
+      items: base.items,
+      message: base.message,
+      injected: base.injected,
+      skipMessage: base.skipMessage,
+    }
+  }
+  return prev ?? { phase: 'connecting' }
+}
+
 /**
- * 消费 /api/chat 的 SSE（data: {"t":"..."} | {"done":true} | {"error":"..."}）
+ * 消费 /api/chat 的 SSE（data: {"t":"..."} | {"meta":...} | {"done":true} | {"error":"..."}）
  */
 export async function consumeChatSse(
   url: string,
   body: Record<string, unknown>,
   onDelta: (text: string) => void,
+  onMeta?: (meta: ChatStreamMeta) => void,
 ): Promise<StreamResult> {
   const res = await fetch(url, {
     method: 'POST',
@@ -68,10 +130,13 @@ export async function consumeChatSse(
         try {
           const json = JSON.parse(raw) as {
             t?: string
+            meta?: ChatStreamMeta
             done?: boolean
             error?: string
           }
           if (json.error) return { ok: false, error: json.error }
+          if (json.meta && onMeta) onMeta(json.meta)
+          if (json.done) continue
           if (json.t) onDelta(json.t)
         } catch {
           /* 跳过坏包 */
