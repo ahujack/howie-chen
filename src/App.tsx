@@ -1,13 +1,27 @@
+import {
+  ClerkProvider,
+  SignInButton,
+  SignedIn,
+  SignedOut,
+  useAuth,
+  UserButton,
+} from '@clerk/clerk-react'
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { buildLocalReply } from './chatReply'
-import { HERO_GREETING, HERO_INTRO, QUICK_CHIPS, WELCOME_MESSAGE } from './copy'
+import { CREATION_STAGE_OPTIONS, HERO_GREETING, HERO_INTRO, QUICK_CHIPS, WELCOME_MESSAGE } from './copy'
+import { MessageBody } from './MessageBody'
 import {
+  loadCreationStage,
   loadHowieKnowledgeBase,
+  loadHowiePersonaVoice,
+  loadInjectHotRoots,
   loadPersonalContext,
+  saveCreationStage,
   saveHowieKnowledgeBase,
+  saveHowiePersonaVoice,
+  saveInjectHotRoots,
   savePersonalContext,
 } from './personalStorage'
-import { MessageBody } from './MessageBody'
 import { ChatWaitPanel, PinnedRetrievalCard, type PinnedRetrieval } from './StreamProgress'
 import { consumeChatSse, mergeMetaToWaitState, type WaitPanelState } from './streamChat'
 import './App.css'
@@ -22,7 +36,13 @@ type Msg = {
 
 type SendOpts = {
   webSearchOverride?: boolean
+  searchIntent?: 'hotspot' | 'general' | 'none'
+  searchQuery?: string
+  creationStage?: string
+  injectHotRoots?: boolean
 }
+
+type PersonaRow = { id: string; name: string; updated_at?: string }
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
@@ -77,7 +97,12 @@ function IconSend() {
   )
 }
 
-export default function App() {
+type ChatAppProps = {
+  getToken: () => Promise<string | null>
+  hasClerk: boolean
+}
+
+function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
   const [webSearch, setWebSearch] = useState(false)
@@ -86,6 +111,13 @@ export default function App() {
   const [awaitingToken, setAwaitingToken] = useState(false)
   const [personalDraft, setPersonalDraft] = useState(loadPersonalContext)
   const [howieKnowledgeBase, setHowieKnowledgeBase] = useState(loadHowieKnowledgeBase)
+  const [howiePersonaVoice, setHowiePersonaVoice] = useState(loadHowiePersonaVoice)
+  const [injectHotRoots, setInjectHotRoots] = useState(loadInjectHotRoots)
+  const [creationStage, setCreationStage] = useState(loadCreationStage)
+  const [searchQueryDraft, setSearchQueryDraft] = useState('')
+  const [personas, setPersonas] = useState<PersonaRow[]>([])
+  const [selectedPersonaId, setSelectedPersonaId] = useState('')
+  const [personaBusy, setPersonaBusy] = useState(false)
   const [waitPanel, setWaitPanel] = useState<WaitPanelState | null>(null)
   const [pinnedRetrieval, setPinnedRetrieval] = useState<PinnedRetrieval | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -100,6 +132,32 @@ export default function App() {
     waitPanelRef.current = waitPanel
   }, [waitPanel])
 
+  const refreshPersonas = useCallback(async () => {
+    const t = await getToken()
+    if (!t) {
+      setPersonas([])
+      setSelectedPersonaId('')
+      return
+    }
+    try {
+      const r = await fetch('/api/persona', { headers: { Authorization: `Bearer ${t}` } })
+      if (!r.ok) return
+      const j = (await r.json()) as { personas?: PersonaRow[] }
+      const list = j.personas ?? []
+      setPersonas(list)
+      setSelectedPersonaId((prev) => {
+        if (prev && list.some((p) => p.id === prev)) return prev
+        return list[0]?.id ?? ''
+      })
+    } catch {
+      /* ignore */
+    }
+  }, [getToken])
+
+  useEffect(() => {
+    void refreshPersonas()
+  }, [refreshPersonas])
+
   const hasUserMessage = messages.some((m) => m.role === 'user')
 
   const scrollBottom = useCallback(() => {
@@ -110,6 +168,29 @@ export default function App() {
   useEffect(() => {
     scrollBottom()
   }, [messages, awaitingToken, waitPanel, scrollBottom])
+
+  const createDefaultPersona = useCallback(async () => {
+    const t = await getToken()
+    if (!t) return
+    setPersonaBusy(true)
+    try {
+      const r = await fetch('/api/persona', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
+        body: JSON.stringify({
+          name: '我的人设',
+          five_dims: { value: '', audience: '', persona: '', type: '', style: '' },
+        }),
+      })
+      if (r.ok) {
+        const row = (await r.json()) as { id: string }
+        await refreshPersonas()
+        setSelectedPersonaId(row.id)
+      }
+    } finally {
+      setPersonaBusy(false)
+    }
+  }, [getToken, refreshPersonas])
 
   const sendText = useCallback(
     async (raw: string, opts?: SendOpts) => {
@@ -176,15 +257,35 @@ export default function App() {
       }
 
       const personal = loadPersonalContext().trim()
+      const sq = (opts?.searchQuery ?? searchQueryDraft).trim().slice(0, 400)
+      const intent =
+        opts?.searchIntent ??
+        (useWeb ? 'general' : 'none')
+
+      const stage = opts?.creationStage ?? creationStage
+      const roots = opts?.injectHotRoots ?? injectHotRoots
+
       const payload: Record<string, unknown> = {
         messages: nextMessages.map(({ role, content }) => ({ role, content })),
         stream: true,
         webSearch: useWeb,
+        howieKnowledgeBase,
+        howiePersonaVoice,
+        injectHotRoots: roots,
       }
       if (personal) payload.personalContext = personal
-      payload.howieKnowledgeBase = howieKnowledgeBase
+      if (stage) payload.creationStage = stage
+      if (useWeb && intent !== 'none') {
+        payload.searchIntent = intent
+        if (sq) payload.searchQuery = sq
+      }
+      if (selectedPersonaId) payload.personaId = selectedPersonaId
 
       let assistantId: string | null = null
+
+      const token = await getToken()
+      const extraHeaders: Record<string, string> = {}
+      if (token) extraHeaders.Authorization = `Bearer ${token}`
 
       const result = await consumeChatSse(
         '/api/chat',
@@ -215,6 +316,7 @@ export default function App() {
         (meta) => {
           setWaitPanel((prev) => mergeMetaToWaitState(prev, meta))
         },
+        extraHeaders,
       )
 
       endBusy()
@@ -247,7 +349,17 @@ export default function App() {
         return n
       })
     },
-    [busy, webSearch, howieKnowledgeBase],
+    [
+      busy,
+      webSearch,
+      howieKnowledgeBase,
+      howiePersonaVoice,
+      injectHotRoots,
+      creationStage,
+      searchQueryDraft,
+      selectedPersonaId,
+      getToken,
+    ],
   )
 
   const onSubmit = (e: React.FormEvent) => {
@@ -263,6 +375,20 @@ export default function App() {
           <h1 className="header-title">AI Agent</h1>
           <p className="header-tagline">智能助手 · 工具调用 · 技能系统</p>
         </div>
+        {hasClerk ? (
+          <div className="header-auth">
+            <SignedOut>
+              <SignInButton mode="modal">
+                <button type="button" className="chip">
+                  登录
+                </button>
+              </SignInButton>
+            </SignedOut>
+            <SignedIn>
+              <UserButton />
+            </SignedIn>
+          </div>
+        ) : null}
       </header>
 
       <div className="main-area">
@@ -324,6 +450,37 @@ export default function App() {
       </div>
 
       <div className="dock">
+        {hasClerk ? (
+          <SignedIn>
+            <div className="persona-bar">
+              <span>云端人设</span>
+              <select
+                className="dock-select"
+                value={selectedPersonaId}
+                onChange={(e) => setSelectedPersonaId(e.target.value)}
+                disabled={busy || personaBusy}
+                aria-label="选择云端人设"
+              >
+                {personas.length === 0 ? (
+                  <option value="">（无人设，请先创建）</option>
+                ) : (
+                  personas.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))
+                )}
+              </select>
+              <button type="button" disabled={busy || personaBusy} onClick={() => void createDefaultPersona()}>
+                新建默认人设
+              </button>
+              <button type="button" disabled={busy || personaBusy} onClick={() => void refreshPersonas()}>
+                刷新
+              </button>
+            </div>
+          </SignedIn>
+        ) : null}
+
         <div className="dock-tools dock-tools-toggles">
           <label className="web-toggle">
             <input
@@ -347,7 +504,69 @@ export default function App() {
             />
             <span>方面陈知识库</span>
           </label>
+          <label className="web-toggle">
+            <input
+              type="checkbox"
+              checked={howiePersonaVoice}
+              onChange={(e) => {
+                const on = e.target.checked
+                setHowiePersonaVoice(on)
+                saveHowiePersonaVoice(on)
+              }}
+              disabled={busy}
+            />
+            <span>方面陈演示口吻</span>
+          </label>
+          <label className="web-toggle">
+            <input
+              type="checkbox"
+              checked={injectHotRoots}
+              onChange={(e) => {
+                const on = e.target.checked
+                setInjectHotRoots(on)
+                saveInjectHotRoots(on)
+              }}
+              disabled={busy}
+            />
+            <span>注入热点词根</span>
+          </label>
         </div>
+
+        {webSearch ? (
+          <div className="dock-search-query">
+            <input
+              type="text"
+              value={searchQueryDraft}
+              onChange={(e) => setSearchQueryDraft(e.target.value)}
+              disabled={busy}
+              placeholder="联网检索词（可选）：填标准热点名更易搜准，留空则用整句问题检索"
+              autoComplete="off"
+            />
+          </div>
+        ) : null}
+
+        <div className="dock-row-tools">
+          <label className="web-toggle" style={{ flex: '1 1 200px' }}>
+            <span style={{ marginRight: 8 }}>阶段</span>
+            <select
+              className="dock-select"
+              value={creationStage}
+              onChange={(e) => {
+                const v = e.target.value
+                setCreationStage(v)
+                saveCreationStage(v)
+              }}
+              disabled={busy}
+            >
+              {CREATION_STAGE_OPTIONS.map((o) => (
+                <option key={o.id || 'default'} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
         <div className="dock-personal-wrap">
           <details className="dock-personal dock-personal-block">
             <summary>个人补充（仅本浏览器）</summary>
@@ -377,6 +596,9 @@ export default function App() {
               onClick={() =>
                 void sendText(c.text, {
                   webSearchOverride: c.forceWebSearch ? true : undefined,
+                  searchIntent: c.searchIntent,
+                  creationStage: c.creationStage,
+                  injectHotRoots: c.injectHotRoots,
                 })
               }
             >
@@ -406,5 +628,25 @@ export default function App() {
         </form>
       </div>
     </div>
+  )
+}
+
+function ClerkGate() {
+  const { isLoaded, getToken } = useAuth()
+  if (!isLoaded) {
+    return <div className="chat-app chat-boot">加载身份验证…</div>
+  }
+  return <ChatApp getToken={() => getToken()} hasClerk />
+}
+
+export default function App() {
+  const pk = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY?.trim()
+  if (!pk) {
+    return <ChatApp getToken={async () => null} hasClerk={false} />
+  }
+  return (
+    <ClerkProvider publishableKey={pk} afterSignOutUrl="/">
+      <ClerkGate />
+    </ClerkProvider>
   )
 }

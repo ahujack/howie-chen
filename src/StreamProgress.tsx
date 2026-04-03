@@ -5,7 +5,7 @@ function ProgressRing() {
 }
 
 export function ChatWaitPanel({ state }: { state: WaitPanelState }) {
-  const { phase, query, answer, items = [], message, injected, skipMessage } = state
+  const { phase, query, answer, items = [], message, injected, skipMessage, searchQuality } = state
 
   const title =
     phase === 'connecting'
@@ -78,6 +78,12 @@ export function ChatWaitPanel({ state }: { state: WaitPanelState }) {
       ) : null}
 
       {showFootnote ? <p className="wait-panel-foot">{showFootnote}</p> : null}
+
+      {(phase === 'search_done' || phase === 'generating') && searchQuality === 'weak' ? (
+        <p className="wait-panel-quality-weak">
+          检索结果偏弱：建议把「联网检索词」改成更标准的热点名、或补充平台/时间后再试。
+        </p>
+      ) : null}
     </div>
   )
 }

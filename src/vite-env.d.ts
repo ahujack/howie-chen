@@ -2,6 +2,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_USE_LOCAL_CHAT?: string
+  readonly VITE_CLERK_PUBLISHABLE_KEY?: string
 }
 
 interface ImportMeta {

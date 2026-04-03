@@ -1,7 +1,7 @@
 type StreamResult = { ok: true } | { ok: false; error: string }
 
 export type ChatStreamMeta =
-  | { phase: 'searching'; query: string }
+  | { phase: 'searching'; query: string; intent?: string }
   | {
       phase: 'search_done'
       query: string
@@ -9,6 +9,7 @@ export type ChatStreamMeta =
       items: Array<{ title: string; url: string; snippet: string }>
       message?: string
       injected?: boolean
+      quality?: 'weak' | 'ok'
     }
   | { phase: 'search_skipped'; message?: string; reason?: string }
   | { phase: 'generating' }
@@ -21,6 +22,7 @@ export type WaitPanelState = {
   message?: string
   injected?: boolean
   skipMessage?: string
+  searchQuality?: 'weak' | 'ok'
 }
 
 export function mergeMetaToWaitState(
@@ -38,6 +40,7 @@ export function mergeMetaToWaitState(
       items: meta.items ?? [],
       message: meta.message,
       injected: meta.injected,
+      searchQuality: meta.quality,
     }
   }
   if (meta.phase === 'search_skipped') {
@@ -56,6 +59,7 @@ export function mergeMetaToWaitState(
       message: base.message,
       injected: base.injected,
       skipMessage: base.skipMessage,
+      searchQuality: base.searchQuality,
     }
   }
   return prev ?? { phase: 'connecting' }
@@ -69,10 +73,14 @@ export async function consumeChatSse(
   body: Record<string, unknown>,
   onDelta: (text: string) => void,
   onMeta?: (meta: ChatStreamMeta) => void,
+  extraHeaders?: Record<string, string>,
 ): Promise<StreamResult> {
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(extraHeaders && Object.keys(extraHeaders).length ? extraHeaders : {}),
+    },
     body: JSON.stringify(body),
   })
 
