@@ -11,6 +11,9 @@
     },
     "api/persona.js": {
       "maxDuration": 30
+    },
+    "api/hot-trends.js": {
+      "maxDuration": 30
     }
   },
   "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }]

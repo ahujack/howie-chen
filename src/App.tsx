@@ -9,6 +9,7 @@ import {
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { buildLocalReply } from './chatReply'
 import { CREATION_STAGE_OPTIONS, HERO_GREETING, HERO_INTRO, QUICK_CHIPS, WELCOME_MESSAGE } from './copy'
+import { fetchHotTrendsMarkdown } from './fetchHotTrends'
 import { MessageBody } from './MessageBody'
 import {
   loadCreationStage,
@@ -118,6 +119,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   const [personas, setPersonas] = useState<PersonaRow[]>([])
   const [selectedPersonaId, setSelectedPersonaId] = useState('')
   const [personaBusy, setPersonaBusy] = useState(false)
+  const [hotTrendsLoading, setHotTrendsLoading] = useState(false)
   const [waitPanel, setWaitPanel] = useState<WaitPanelState | null>(null)
   const [pinnedRetrieval, setPinnedRetrieval] = useState<PinnedRetrieval | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -367,6 +369,26 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
     void sendText(input)
   }
 
+  const appendHotTrendsToInput = useCallback(async () => {
+    if (busy || hotTrendsLoading) return
+    setHotTrendsLoading(true)
+    try {
+      const out = await fetchHotTrendsMarkdown()
+      if ('error' in out) {
+        window.alert(out.error)
+        return
+      }
+      const follow =
+        '\n\n请根据以上热点参考，结合我的赛道与人设，给我 3～5 个可做短视频的选题方向（每条一句话 + 前 3 秒钩子方向即可）。'
+      setInput((prev) => {
+        const tail = prev.trim() ? `${prev.trim()}\n\n` : ''
+        return `${tail}${out.markdown}${follow}`
+      })
+    } finally {
+      setHotTrendsLoading(false)
+    }
+  }, [busy, hotTrendsLoading])
+
   return (
     <div className="chat-app">
       <header className="header-brand">
@@ -587,6 +609,15 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
         </div>
 
         <div className="chips" role="toolbar" aria-label="快捷指令">
+          <button
+            type="button"
+            className="chip chip-hot-trends"
+            disabled={busy || hotTrendsLoading}
+            onClick={() => void appendHotTrendsToInput()}
+            title="用 Tavily 检索「微博/小红书」相关网页摘要，填入输入框（非官方热搜 API）"
+          >
+            {hotTrendsLoading ? '正在拉取热点…' : '拉取微博/小红书热点'}
+          </button>
           {QUICK_CHIPS.map((c) => (
             <button
               key={c.label}

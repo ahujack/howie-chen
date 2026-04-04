@@ -7,6 +7,7 @@ const { URL } = require('url')
 const chatHandler = require('../api/chat.js')
 const healthHandler = require('../api/health.js')
 const personaHandler = require('../api/persona.js')
+const hotTrendsHandler = require('../api/hot-trends.js')
 
 const PORT = Number(process.env.PORT || 8787)
 
@@ -104,9 +105,16 @@ const server = http.createServer(async (req, res) => {
       return
     }
 
+    if (pathname === '/api/hot-trends') {
+      const vres = attachVercelLikeRes(res)
+      const mockReq = { method: req.method, body: {}, headers: req.headers, query }
+      await hotTrendsHandler(mockReq, vres)
+      return
+    }
+
     res.statusCode = 404
     res.setHeader('Content-Type', 'text/plain')
-    res.end('Not found. Try GET /api/health, POST /api/chat, /api/persona')
+    res.end('Not found. Try GET /api/health, /api/hot-trends, POST /api/chat, /api/persona')
   } catch (e) {
     console.error(e)
     if (!res.headersSent) {
@@ -118,5 +126,5 @@ const server = http.createServer(async (req, res) => {
 })
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`dev api: http://127.0.0.1:${PORT}/api/health | /api/chat | /api/persona`)
+  console.log(`dev api: http://127.0.0.1:${PORT}/api/health | /api/hot-trends | /api/chat | /api/persona`)
 })

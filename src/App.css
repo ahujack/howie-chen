@@ -708,6 +708,17 @@
   cursor: not-allowed;
 }
 
+.chip-hot-trends {
+  border-color: #fcd34d;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.chip-hot-trends:hover:not(:disabled) {
+  background: #fef3c7;
+  border-color: #fbbf24;
+}
+
 .composer {
   margin: 0;
   padding: 0;
