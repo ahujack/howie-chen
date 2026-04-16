@@ -6,7 +6,7 @@ import {
   useAuth,
   UserButton,
 } from '@clerk/clerk-react'
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { buildLocalReply } from './chatReply'
 import { CREATION_STAGE_OPTIONS, HERO_GREETING, HERO_INTRO, QUICK_CHIPS, WELCOME_MESSAGE } from './copy'
 import { fetchHotTrendsMarkdown } from './fetchHotTrends'
@@ -26,6 +26,7 @@ import {
   saveInjectHotRoots,
   savePersonalContext,
 } from './personalStorage'
+import { DiagnosticFirstRoundForm, DiagnosticStepper } from './DiagnosticUI'
 import { ChatWaitPanel, PinnedRetrievalCard, type PinnedRetrieval } from './StreamProgress'
 import { consumeChatSse, mergeMetaToWaitState, type WaitPanelState } from './streamChat'
 import './App.css'
@@ -61,6 +62,8 @@ const USE_LOCAL_ONLY =
   import.meta.env.DEV && import.meta.env.VITE_USE_LOCAL_CHAT === 'true'
 
 function RobotMark({ size = 40 }: { size?: number }) {
+  const gid = useId().replace(/:/g, '')
+  const gradId = `logo-grad-${gid}`
   return (
     <svg
       className="robot-mark"
@@ -69,13 +72,19 @@ function RobotMark({ size = 40 }: { size?: number }) {
       viewBox="0 0 40 40"
       aria-hidden
     >
-      <rect width="40" height="40" rx="6" fill="#111" />
-      <circle cx="14" cy="16" r="3" fill="#fff" />
-      <circle cx="26" cy="16" r="3" fill="#fff" />
+      <defs>
+        <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#22d3ee" />
+          <stop offset="100%" stopColor="#a78bfa" />
+        </linearGradient>
+      </defs>
+      <rect width="40" height="40" rx="10" fill={`url(#${gradId})`} />
+      <circle cx="14" cy="16" r="3" fill="#0f172a" />
+      <circle cx="26" cy="16" r="3" fill="#0f172a" />
       <path
         d="M12 26 Q20 30 28 26"
         fill="none"
-        stroke="#fff"
+        stroke="#0f172a"
         strokeWidth="2"
         strokeLinecap="round"
       />
@@ -416,19 +425,33 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
 
   const diagMode = hkInsuranceAiDiagnostician || universalAiPlanner
 
+  const userMessageCount = messages.filter((m) => m.role === 'user').length
+  const diagStep: 1 | 2 | 3 =
+    userMessageCount >= 2 ? 3 : userMessageCount === 1 ? 2 : 1
+
+  const handleDiagFirstRound = useCallback(
+    (job: string, aiUsage: string, goal: string) => {
+      const text = `我完成首轮三问，请按你的人设继续问诊（如需再追问 1～2 个关键问题）：\n\n1）工作内容：${job}\n2）AI 使用：${aiUsage}\n3）最想解决：${goal}`
+      void sendText(text)
+    },
+    [sendText],
+  )
+
   return (
     <div className="chat-app">
       <header className="header-brand">
         <RobotMark size={36} />
         <div className="header-brand-text">
-          <h1 className="header-title">AI Agent</h1>
+          <h1 className="header-title">
+            <span className="header-title-gradient">AI Agent</span>
+          </h1>
           <p className="header-tagline">智能助手 · 工具调用 · 技能系统</p>
         </div>
         {hasClerk ? (
           <div className="header-auth">
             <SignedOut>
               <SignInButton mode="modal">
-                <button type="button" className="chip">
+                <button type="button" className="chip chip--cta">
                   登录
                 </button>
               </SignInButton>
@@ -440,18 +463,33 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
         ) : null}
       </header>
 
+      {diagMode ? <DiagnosticStepper step={diagStep} /> : null}
+
       <div className="main-area">
         {!hasUserMessage && (
           <section className="hero" aria-label="欢迎">
-            <div className="hero-robot">
-              <RobotMark size={72} />
+            <div className="hero-panel">
+              {diagMode ? (
+                <DiagnosticFirstRoundForm
+                  busy={busy}
+                  variant={universalAiPlanner ? 'universal' : 'hk'}
+                  onSubmit={handleDiagFirstRound}
+                />
+              ) : (
+                <>
+                  <span className="hero-badge">多模式 · 联网可选</span>
+                  <div className="hero-robot">
+                    <RobotMark size={72} />
+                  </div>
+                  <h2 className="hero-greeting">{HERO_GREETING}</h2>
+                  <p className="hero-intro">{HERO_INTRO}</p>
+                  <details className="hero-details">
+                    <summary>查看全部能力与关键词</summary>
+                    <pre className="hero-details-pre">{WELCOME_MESSAGE}</pre>
+                  </details>
+                </>
+              )}
             </div>
-            <h2 className="hero-greeting">{HERO_GREETING}</h2>
-            <p className="hero-intro">{HERO_INTRO}</p>
-            <details className="hero-details">
-              <summary>查看全部能力与关键词</summary>
-              <pre className="hero-details-pre">{WELCOME_MESSAGE}</pre>
-            </details>
           </section>
         )}
 
@@ -743,7 +781,15 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
             </span>
             <input
               className="composer-input"
-              placeholder="输入消息…"
+              placeholder={
+                diagMode && userMessageCount === 0
+                  ? '或在此输入首轮内容（与上方表单二选一）…'
+                  : diagMode && userMessageCount === 1
+                    ? '第 2 步：回复 AI 的追问…'
+                    : diagMode && userMessageCount >= 2
+                      ? '第 3 步：可继续追问，或请 AI 输出完整诊断…'
+                      : '输入消息…'
+              }
               value={input}
               onChange={(e) => setInput(e.target.value)}
               disabled={busy}
