@@ -13,11 +13,13 @@ import { fetchHotTrendsMarkdown } from './fetchHotTrends'
 import { MessageBody } from './MessageBody'
 import {
   loadCreationStage,
+  loadHkInsuranceAiDiagnostician,
   loadHowieKnowledgeBase,
   loadHowiePersonaVoice,
   loadInjectHotRoots,
   loadPersonalContext,
   saveCreationStage,
+  saveHkInsuranceAiDiagnostician,
   saveHowieKnowledgeBase,
   saveHowiePersonaVoice,
   saveInjectHotRoots,
@@ -41,6 +43,8 @@ type SendOpts = {
   searchQuery?: string
   creationStage?: string
   injectHotRoots?: boolean
+  /** true 时本请求走港险 AI 段位诊断师系统提示；未传则用界面开关状态 */
+  hkInsuranceAiDiagnostician?: boolean
 }
 
 type PersonaRow = { id: string; name: string; updated_at?: string }
@@ -115,6 +119,9 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   const [howiePersonaVoice, setHowiePersonaVoice] = useState(loadHowiePersonaVoice)
   const [injectHotRoots, setInjectHotRoots] = useState(loadInjectHotRoots)
   const [creationStage, setCreationStage] = useState(loadCreationStage)
+  const [hkInsuranceAiDiagnostician, setHkInsuranceAiDiagnostician] = useState(
+    loadHkInsuranceAiDiagnostician,
+  )
   const [searchQueryDraft, setSearchQueryDraft] = useState('')
   const [personas, setPersonas] = useState<PersonaRow[]>([])
   const [selectedPersonaId, setSelectedPersonaId] = useState('')
@@ -266,6 +273,10 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
 
       const stage = opts?.creationStage ?? creationStage
       const roots = opts?.injectHotRoots ?? injectHotRoots
+      const hkDiag =
+        opts?.hkInsuranceAiDiagnostician !== undefined
+          ? opts.hkInsuranceAiDiagnostician
+          : hkInsuranceAiDiagnostician
 
       const payload: Record<string, unknown> = {
         messages: nextMessages.map(({ role, content }) => ({ role, content })),
@@ -275,6 +286,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
         howiePersonaVoice,
         injectHotRoots: roots,
       }
+      if (hkDiag) payload.hkInsuranceAiDiagnostician = true
       if (personal) payload.personalContext = personal
       if (stage) payload.creationStage = stage
       if (useWeb && intent !== 'none') {
@@ -358,6 +370,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
       howiePersonaVoice,
       injectHotRoots,
       creationStage,
+      hkInsuranceAiDiagnostician,
       searchQueryDraft,
       selectedPersonaId,
       getToken,
@@ -516,13 +529,26 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
           <label className="web-toggle">
             <input
               type="checkbox"
+              checked={hkInsuranceAiDiagnostician}
+              onChange={(e) => {
+                const on = e.target.checked
+                setHkInsuranceAiDiagnostician(on)
+                saveHkInsuranceAiDiagnostician(on)
+              }}
+              disabled={busy}
+            />
+            <span>港险·AI段位诊断师</span>
+          </label>
+          <label className="web-toggle">
+            <input
+              type="checkbox"
               checked={howieKnowledgeBase}
               onChange={(e) => {
                 const on = e.target.checked
                 setHowieKnowledgeBase(on)
                 saveHowieKnowledgeBase(on)
               }}
-              disabled={busy}
+              disabled={busy || hkInsuranceAiDiagnostician}
             />
             <span>方面陈知识库</span>
           </label>
@@ -535,7 +561,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                 setHowiePersonaVoice(on)
                 saveHowiePersonaVoice(on)
               }}
-              disabled={busy}
+              disabled={busy || hkInsuranceAiDiagnostician}
             />
             <span>方面陈演示口吻</span>
           </label>
@@ -548,11 +574,16 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                 setInjectHotRoots(on)
                 saveInjectHotRoots(on)
               }}
-              disabled={busy}
+              disabled={busy || hkInsuranceAiDiagnostician}
             />
             <span>注入热点词根</span>
           </label>
         </div>
+        {hkInsuranceAiDiagnostician ? (
+          <p className="dock-personal-hint" style={{ marginTop: 4, marginBottom: 0 }}>
+            此模式下不注入方面陈知识库与创作阶段扩展；云端人设与个人补充仍会带上，便于结合你的职责举例。
+          </p>
+        ) : null}
 
         {webSearch ? (
           <div className="dock-search-query">
@@ -578,7 +609,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                 setCreationStage(v)
                 saveCreationStage(v)
               }}
-              disabled={busy}
+              disabled={busy || hkInsuranceAiDiagnostician}
             >
               {CREATION_STAGE_OPTIONS.map((o) => (
                 <option key={o.id || 'default'} value={o.id}>
@@ -595,13 +626,22 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
             <p className="dock-personal-hint">
               写口头禅、禁忌、人设语气等偏好。这些内容会附在每次对话请求里发给模型，用来对齐你的风格；文字只保存在当前浏览器的本地存储，换设备或清除站点数据后需重新填写，不会单独上传到云端「个人档案」。
             </p>
+            {hkInsuranceAiDiagnostician ? (
+              <p className="dock-personal-hint">
+                港险·AI段位诊断师：若希望诊断结尾的「想进一步聊」带出真实顾问微信、表单或预约链接，请在此写明（模型会按规范填入，勿编造）；落地页静态展示时也可留空，由页面其他位置承接。
+              </p>
+            ) : null}
             <textarea
               className="personal-textarea"
               value={personalDraft}
               onChange={(e) => setPersonalDraft(e.target.value)}
               onBlur={() => savePersonalContext(personalDraft)}
               disabled={busy}
-              placeholder="例如：不说「亲们」、多用短句、口头禅……失焦自动保存。"
+              placeholder={
+                hkInsuranceAiDiagnostician
+                  ? '例如：官方咨询微信 xxx；或本活动表单链接……（可选）'
+                  : '例如：不说「亲们」、多用短句、口头禅……失焦自动保存。'
+              }
               rows={3}
               spellCheck={false}
             />
@@ -624,14 +664,19 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
               type="button"
               className="chip"
               disabled={busy}
-              onClick={() =>
+              onClick={() => {
+                if (c.hkInsuranceAiDiagnostician) {
+                  setHkInsuranceAiDiagnostician(true)
+                  saveHkInsuranceAiDiagnostician(true)
+                }
                 void sendText(c.text, {
                   webSearchOverride: c.forceWebSearch ? true : undefined,
                   searchIntent: c.searchIntent,
                   creationStage: c.creationStage,
                   injectHotRoots: c.injectHotRoots,
+                  hkInsuranceAiDiagnostician: c.hkInsuranceAiDiagnostician,
                 })
-              }
+              }}
             >
               {c.label}
             </button>

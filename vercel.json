@@ -4,7 +4,7 @@
   "functions": {
     "api/chat.js": {
       "maxDuration": 60,
-      "includeFiles": "api/kb-howie-content.md"
+      "includeFiles": "api/kb-*.md"
     },
     "api/health.js": {
       "maxDuration": 10

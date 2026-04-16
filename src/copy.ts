@@ -83,9 +83,16 @@ export type QuickChip = {
   searchIntent?: 'hotspot' | 'general'
   creationStage?: string
   injectHotRoots?: boolean
+  /** 为 true 时启用港险 AI 段位诊断师模式并勾选底部开关 */
+  hkInsuranceAiDiagnostician?: boolean
 }
 
 export const QUICK_CHIPS: QuickChip[] = [
+  {
+    label: 'AI段位诊断',
+    text: '你好，我想开始港险 AI 段位诊断。',
+    hkInsuranceAiDiagnostician: true,
+  },
   {
     label: '热点解读',
     text:
