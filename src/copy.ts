@@ -85,11 +85,18 @@ export type QuickChip = {
   injectHotRoots?: boolean
   /** 为 true 时启用港险 AI 段位诊断师模式并勾选底部开关 */
   hkInsuranceAiDiagnostician?: boolean
+  /** 为 true 时启用各行各业 AI 规划师 / 自我诊断 */
+  universalAiPlanner?: boolean
 }
 
 export const QUICK_CHIPS: QuickChip[] = [
   {
-    label: 'AI段位诊断',
+    label: '通用·AI规划师',
+    text: '你好，我想做一下 AI 能力自我诊断（不限行业）。',
+    universalAiPlanner: true,
+  },
+  {
+    label: '港险·AI诊断',
     text: '你好，我想开始港险 AI 段位诊断。',
     hkInsuranceAiDiagnostician: true,
   },

@@ -4,6 +4,7 @@ const KEY_HOWIE_VOICE = 'howie_chen_howie_persona_voice_v1'
 const KEY_INJECT_ROOTS = 'howie_chen_inject_hot_roots_v1'
 const KEY_CREATION_STAGE = 'howie_chen_creation_stage_v1'
 const KEY_HK_DIAG = 'howie_chen_hk_insurance_ai_diagnostician_v1'
+const KEY_UNIVERSAL_PLANNER = 'howie_chen_universal_ai_planner_v1'
 
 export function loadPersonalContext(): string {
   try {
@@ -104,4 +105,35 @@ export function saveHkInsuranceAiDiagnostician(on: boolean): void {
   } catch {
     /* ignore */
   }
+}
+
+/** 各行各业 · AI 规划师 / 自我诊断（与港险诊断互斥） */
+export function loadUniversalAiPlanner(): boolean {
+  try {
+    return localStorage.getItem(KEY_UNIVERSAL_PLANNER) === '1'
+  } catch {
+    return false
+  }
+}
+
+export function saveUniversalAiPlanner(on: boolean): void {
+  try {
+    localStorage.setItem(KEY_UNIVERSAL_PLANNER, on ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 两种诊断模式互斥；若历史数据同时为 true，保留通用、关闭港险 */
+export function loadDiagExclusive(): {
+  hkInsuranceAiDiagnostician: boolean
+  universalAiPlanner: boolean
+} {
+  let hk = loadHkInsuranceAiDiagnostician()
+  const uni = loadUniversalAiPlanner()
+  if (hk && uni) {
+    saveHkInsuranceAiDiagnostician(false)
+    hk = false
+  }
+  return { hkInsuranceAiDiagnostician: hk, universalAiPlanner: uni }
 }

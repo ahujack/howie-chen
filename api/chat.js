@@ -25,6 +25,14 @@ try {
   console.warn('[chat] kb-hk-insurance-ai-diagnostician.md 未读取:', e && e.message)
 }
 
+/** 各行各业 · AI 能力自我诊断师 / AI 规划师（与港险诊断、默认创作模式互斥） */
+let UNIVERSAL_PLANNER_KB_MD = ''
+try {
+  UNIVERSAL_PLANNER_KB_MD = fs.readFileSync(path.join(__dirname, 'kb-universal-ai-planner.md'), 'utf8')
+} catch (e) {
+  console.warn('[chat] kb-universal-ai-planner.md 未读取:', e && e.message)
+}
+
 const CREATION_STAGE_HINTS = {
   intake:
     '【创作阶段：需求收集】在输出完整口播/长文案前，先用简短问题确认：行业/赛道、目标人群、转化或传播目标。信息不足时只给方向清单与待补充问题，不要硬写长稿。',
@@ -157,6 +165,7 @@ function parseOptions(body) {
       injectHotRoots: false,
       personaId: undefined,
       hkInsuranceAiDiagnostician: false,
+      universalAiPlanner: false,
     }
   }
   const webSearch = body.webSearch === true
@@ -170,6 +179,8 @@ function parseOptions(body) {
   const personaId = typeof body.personaId === 'string' ? body.personaId.slice(0, 80) : undefined
   /** 港险 AI 段位诊断师模式：与默认「内容创作 / 方面陈」体系互斥，由前端勾选 */
   const hkInsuranceAiDiagnostician = body.hkInsuranceAiDiagnostician === true
+  /** 通用 AI 规划师 / 自我诊断师：各行各业；与港险诊断互斥，优先于港险（若前端误传双 true） */
+  const universalAiPlanner = body.universalAiPlanner === true
   return {
     webSearch,
     howieKnowledgeBase,
@@ -179,6 +190,7 @@ function parseOptions(body) {
     injectHotRoots,
     personaId,
     hkInsuranceAiDiagnostician,
+    universalAiPlanner,
   }
 }
 
@@ -258,7 +270,26 @@ function buildSystemPrompt({
   injectHotRoots,
   structuredPersona,
   hkInsuranceAiDiagnostician,
+  universalAiPlanner,
 }) {
+  if (universalAiPlanner) {
+    const kbBody = UNIVERSAL_PLANNER_KB_MD
+      ? UNIVERSAL_PLANNER_KB_MD.length > 28000
+        ? UNIVERSAL_PLANNER_KB_MD.slice(0, 28000) + '\n\n…(人设规范已截断)'
+        : UNIVERSAL_PLANNER_KB_MD
+      : '（服务端未读取到 kb-universal-ai-planner.md，请检查部署与 vercel.json includeFiles；在此之前仍按「AI 能力自我诊断师」身份做简短问诊与判定。）'
+    const parts = [
+      `你是面向各行各业的 **AI 能力自我诊断师**（AI 规划师）。你必须**只**按下方《人设与流程规范》扮演角色，完成两轮问诊与结构化输出；**不要**同时扮演「方面陈」口播教练、陈科豪体系内容营销顾问，也不要主动输出与 AI 段位诊断无关的长篇口播稿或教程，除非用户明确要求切换话题。\n\n---\n\n${kbBody}`,
+    ]
+    if (structuredPersona) {
+      parts.push(`## 用户云端人设（可结合其职责与场景举例）\n${structuredPersona}`)
+    }
+    if (personal) {
+      parts.push(`## 用户个人补充（本机；勿编造未提供的事实）\n${personal}`)
+    }
+    return parts.join('\n\n')
+  }
+
   if (hkInsuranceAiDiagnostician) {
     const kbBody = HK_DIAG_KB_MD
       ? HK_DIAG_KB_MD.length > 28000
@@ -492,6 +523,7 @@ module.exports = async function handler(req, res) {
       injectHotRoots,
       personaId,
       hkInsuranceAiDiagnostician,
+      universalAiPlanner,
     } = parseOptions(body)
     const searchOpts = parseSearchOptions(body)
 
@@ -505,7 +537,8 @@ module.exports = async function handler(req, res) {
       creationStage,
       injectHotRoots,
       structuredPersona,
-      hkInsuranceAiDiagnostician,
+      hkInsuranceAiDiagnostician: universalAiPlanner ? false : hkInsuranceAiDiagnostician,
+      universalAiPlanner,
     })
 
     const recent = messages.slice(-24)

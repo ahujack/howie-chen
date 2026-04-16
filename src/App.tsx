@@ -13,13 +13,14 @@ import { fetchHotTrendsMarkdown } from './fetchHotTrends'
 import { MessageBody } from './MessageBody'
 import {
   loadCreationStage,
-  loadHkInsuranceAiDiagnostician,
+  loadDiagExclusive,
   loadHowieKnowledgeBase,
   loadHowiePersonaVoice,
   loadInjectHotRoots,
   loadPersonalContext,
   saveCreationStage,
   saveHkInsuranceAiDiagnostician,
+  saveUniversalAiPlanner,
   saveHowieKnowledgeBase,
   saveHowiePersonaVoice,
   saveInjectHotRoots,
@@ -45,6 +46,8 @@ type SendOpts = {
   injectHotRoots?: boolean
   /** true 时本请求走港险 AI 段位诊断师系统提示；未传则用界面开关状态 */
   hkInsuranceAiDiagnostician?: boolean
+  /** true 时走各行各业 AI 规划师 / 自我诊断；与港险诊断互斥 */
+  universalAiPlanner?: boolean
 }
 
 type PersonaRow = { id: string; name: string; updated_at?: string }
@@ -120,7 +123,10 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   const [injectHotRoots, setInjectHotRoots] = useState(loadInjectHotRoots)
   const [creationStage, setCreationStage] = useState(loadCreationStage)
   const [hkInsuranceAiDiagnostician, setHkInsuranceAiDiagnostician] = useState(
-    loadHkInsuranceAiDiagnostician,
+    () => loadDiagExclusive().hkInsuranceAiDiagnostician,
+  )
+  const [universalAiPlanner, setUniversalAiPlanner] = useState(
+    () => loadDiagExclusive().universalAiPlanner,
   )
   const [searchQueryDraft, setSearchQueryDraft] = useState('')
   const [personas, setPersonas] = useState<PersonaRow[]>([])
@@ -273,6 +279,10 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
 
       const stage = opts?.creationStage ?? creationStage
       const roots = opts?.injectHotRoots ?? injectHotRoots
+      const uniPlan =
+        opts?.universalAiPlanner !== undefined
+          ? opts.universalAiPlanner
+          : universalAiPlanner
       const hkDiag =
         opts?.hkInsuranceAiDiagnostician !== undefined
           ? opts.hkInsuranceAiDiagnostician
@@ -286,7 +296,8 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
         howiePersonaVoice,
         injectHotRoots: roots,
       }
-      if (hkDiag) payload.hkInsuranceAiDiagnostician = true
+      if (uniPlan) payload.universalAiPlanner = true
+      else if (hkDiag) payload.hkInsuranceAiDiagnostician = true
       if (personal) payload.personalContext = personal
       if (stage) payload.creationStage = stage
       if (useWeb && intent !== 'none') {
@@ -371,6 +382,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
       injectHotRoots,
       creationStage,
       hkInsuranceAiDiagnostician,
+      universalAiPlanner,
       searchQueryDraft,
       selectedPersonaId,
       getToken,
@@ -401,6 +413,8 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
       setHotTrendsLoading(false)
     }
   }, [busy, hotTrendsLoading])
+
+  const diagMode = hkInsuranceAiDiagnostician || universalAiPlanner
 
   return (
     <div className="chat-app">
@@ -534,10 +548,31 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                 const on = e.target.checked
                 setHkInsuranceAiDiagnostician(on)
                 saveHkInsuranceAiDiagnostician(on)
+                if (on) {
+                  setUniversalAiPlanner(false)
+                  saveUniversalAiPlanner(false)
+                }
               }}
               disabled={busy}
             />
             <span>港险·AI段位诊断师</span>
+          </label>
+          <label className="web-toggle">
+            <input
+              type="checkbox"
+              checked={universalAiPlanner}
+              onChange={(e) => {
+                const on = e.target.checked
+                setUniversalAiPlanner(on)
+                saveUniversalAiPlanner(on)
+                if (on) {
+                  setHkInsuranceAiDiagnostician(false)
+                  saveHkInsuranceAiDiagnostician(false)
+                }
+              }}
+              disabled={busy}
+            />
+            <span>通用·AI规划师</span>
           </label>
           <label className="web-toggle">
             <input
@@ -548,7 +583,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                 setHowieKnowledgeBase(on)
                 saveHowieKnowledgeBase(on)
               }}
-              disabled={busy || hkInsuranceAiDiagnostician}
+              disabled={busy || diagMode}
             />
             <span>方面陈知识库</span>
           </label>
@@ -561,7 +596,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                 setHowiePersonaVoice(on)
                 saveHowiePersonaVoice(on)
               }}
-              disabled={busy || hkInsuranceAiDiagnostician}
+              disabled={busy || diagMode}
             />
             <span>方面陈演示口吻</span>
           </label>
@@ -574,14 +609,16 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                 setInjectHotRoots(on)
                 saveInjectHotRoots(on)
               }}
-              disabled={busy || hkInsuranceAiDiagnostician}
+              disabled={busy || diagMode}
             />
             <span>注入热点词根</span>
           </label>
         </div>
-        {hkInsuranceAiDiagnostician ? (
+        {diagMode ? (
           <p className="dock-personal-hint" style={{ marginTop: 4, marginBottom: 0 }}>
-            此模式下不注入方面陈知识库与创作阶段扩展；云端人设与个人补充仍会带上，便于结合你的职责举例。
+            {universalAiPlanner
+              ? '通用·AI规划师：面向各行各业；不注入方面陈知识库与创作阶段。云端人设与个人补充仍会带上。助理微信已在诊断结果中固定为 hklaochen09。'
+              : '港险·AI段位诊断师：不注入方面陈知识库与创作阶段扩展；云端人设与个人补充仍会带上，便于结合你的职责举例。'}
           </p>
         ) : null}
 
@@ -609,7 +646,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                 setCreationStage(v)
                 saveCreationStage(v)
               }}
-              disabled={busy || hkInsuranceAiDiagnostician}
+              disabled={busy || diagMode}
             >
               {CREATION_STAGE_OPTIONS.map((o) => (
                 <option key={o.id || 'default'} value={o.id}>
@@ -631,6 +668,11 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                 港险·AI段位诊断师：若希望诊断结尾的「想进一步聊」带出真实顾问微信、表单或预约链接，请在此写明（模型会按规范填入，勿编造）；落地页静态展示时也可留空，由页面其他位置承接。
               </p>
             ) : null}
+            {universalAiPlanner ? (
+              <p className="dock-personal-hint">
+                通用·AI规划师：一对一跟进助理微信已固定为 hklaochen09（人设内写入），此处可只填个人语气、行业禁忌等补充。
+              </p>
+            ) : null}
             <textarea
               className="personal-textarea"
               value={personalDraft}
@@ -640,7 +682,9 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
               placeholder={
                 hkInsuranceAiDiagnostician
                   ? '例如：官方咨询微信 xxx；或本活动表单链接……（可选）'
-                  : '例如：不说「亲们」、多用短句、口头禅……失焦自动保存。'
+                  : universalAiPlanner
+                    ? '例如：不说套话、行业禁忌、称呼偏好……（可选）'
+                    : '例如：不说「亲们」、多用短句、口头禅……失焦自动保存。'
               }
               rows={3}
               spellCheck={false}
@@ -668,6 +712,14 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                 if (c.hkInsuranceAiDiagnostician) {
                   setHkInsuranceAiDiagnostician(true)
                   saveHkInsuranceAiDiagnostician(true)
+                  setUniversalAiPlanner(false)
+                  saveUniversalAiPlanner(false)
+                }
+                if (c.universalAiPlanner) {
+                  setUniversalAiPlanner(true)
+                  saveUniversalAiPlanner(true)
+                  setHkInsuranceAiDiagnostician(false)
+                  saveHkInsuranceAiDiagnostician(false)
                 }
                 void sendText(c.text, {
                   webSearchOverride: c.forceWebSearch ? true : undefined,
@@ -675,6 +727,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                   creationStage: c.creationStage,
                   injectHotRoots: c.injectHotRoots,
                   hkInsuranceAiDiagnostician: c.hkInsuranceAiDiagnostician,
+                  universalAiPlanner: c.universalAiPlanner,
                 })
               }}
             >
