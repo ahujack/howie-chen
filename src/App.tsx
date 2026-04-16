@@ -193,6 +193,29 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
     scrollBottom()
   }, [messages, awaitingToken, waitPanel, scrollBottom])
 
+  /** 诊断分支：切换港险/通用或从「无诊断」新进入某一诊断时，清空会话以回到首轮三问表单与步骤 1 */
+  const diagBranchKey: 'none' | 'hk' | 'uni' = universalAiPlanner
+    ? 'uni'
+    : hkInsuranceAiDiagnostician
+      ? 'hk'
+      : 'none'
+  const prevDiagBranchRef = useRef<'none' | 'hk' | 'uni' | undefined>(undefined)
+  useEffect(() => {
+    const prev = prevDiagBranchRef.current
+    prevDiagBranchRef.current = diagBranchKey
+    if (prev === undefined) return
+    if (prev !== diagBranchKey && diagBranchKey !== 'none') {
+      setMessages([])
+      messagesRef.current = []
+      setPinnedRetrieval(null)
+      setWaitPanel(null)
+      setInput('')
+      setAwaitingToken(false)
+      setBusy(false)
+      setPendingWebSearch(false)
+    }
+  }, [diagBranchKey])
+
   const createDefaultPersona = useCallback(async () => {
     const t = await getToken()
     if (!t) return
@@ -474,6 +497,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
             <div className="hero-panel">
               {diagMode ? (
                 <DiagnosticFirstRoundForm
+                  key={diagBranchKey}
                   busy={busy}
                   variant={universalAiPlanner ? 'universal' : 'hk'}
                   onSubmit={handleDiagFirstRound}
