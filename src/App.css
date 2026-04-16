@@ -77,6 +77,10 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* 长表单 / 长对话时在此区域滚动，避免被底部 Dock 遮挡且无法下拉 */
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* 首屏 */
@@ -88,6 +92,15 @@
   justify-content: center;
   text-align: center;
   padding: 20px 24px 32px;
+}
+
+/* 诊断首轮表单：按内容增高，由 .main-area 滚动，不把第 2、3 问顶到 Dock 下面 */
+.hero.hero--diag-form {
+  flex: 0 1 auto;
+  justify-content: flex-start;
+  align-items: center;
+  padding-top: 16px;
+  padding-bottom: max(32px, env(safe-area-inset-bottom, 0px));
 }
 
 .hero-panel {
@@ -178,6 +191,7 @@
 
 .thread {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 12px 24px 20px;
   display: flex;

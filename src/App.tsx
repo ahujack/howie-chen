@@ -467,7 +467,10 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
 
       <div className="main-area">
         {!hasUserMessage && (
-          <section className="hero" aria-label="欢迎">
+          <section
+            className={`hero ${diagMode ? 'hero--diag-form' : ''}`}
+            aria-label="欢迎"
+          >
             <div className="hero-panel">
               {diagMode ? (
                 <DiagnosticFirstRoundForm
