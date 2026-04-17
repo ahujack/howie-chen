@@ -32,6 +32,7 @@ import {
   saveBillingApiKey,
   saveBillingUsername,
 } from './billingStorage'
+import { normalizeBillingApiKey } from './billingKeyUtils'
 import { getFreeChatLimit, getFreeRoundsUsed, incrementFreeRoundsUsed } from './freeChatLimit'
 import { DiagnosticFirstRoundForm, DiagnosticStepper } from './DiagnosticUI'
 import { ChatWaitPanel, PinnedRetrievalCard, type PinnedRetrieval } from './StreamProgress'
@@ -196,7 +197,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   }, [refreshPersonas])
 
   const refreshBilling = useCallback(async () => {
-    const k = loadBillingApiKey().trim()
+    const k = normalizeBillingApiKey(loadBillingApiKey())
     if (!k) {
       setPointsBalance(null)
       return
@@ -280,9 +281,10 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
       const text = raw.trim()
       if (!text || busy) return
 
+      const billingKeyEffective = normalizeBillingApiKey(billingKeyDraft || loadBillingApiKey())
+
       if (!USE_LOCAL_ONLY) {
-        const keyAtSend = loadBillingApiKey().trim()
-        if (!keyAtSend) {
+        if (!billingKeyEffective) {
           const lim = getFreeChatLimit()
           if (getFreeRoundsUsed() >= lim) {
             setGuardMsg(
@@ -293,7 +295,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
         }
       }
 
-      const hadBillingKey = loadBillingApiKey().trim().length > 0
+      const hadBillingKey = billingKeyEffective.length > 0
 
       const useWeb =
         opts?.webSearchOverride !== undefined ? opts.webSearchOverride : webSearch
@@ -394,8 +396,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
       const token = await getToken()
       const extraHeaders: Record<string, string> = {}
       if (token) extraHeaders.Authorization = `Bearer ${token}`
-      const billingKeyForReq = loadBillingApiKey().trim()
-      if (billingKeyForReq) extraHeaders['X-API-Key'] = billingKeyForReq
+      if (billingKeyEffective) extraHeaders['X-API-Key'] = billingKeyEffective
 
       const result = await consumeChatSse(
         '/api/chat',
@@ -433,6 +434,10 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
 
       if (result.ok) {
         if (result.billing) setPointsBalance(result.billing.pointsBalance)
+        if (billingKeyEffective) {
+          saveBillingApiKey(billingKeyEffective)
+          setBillingKeyDraft(billingKeyEffective)
+        }
         if (!USE_LOCAL_ONLY && !hadBillingKey) {
           incrementFreeRoundsUsed()
           setFreeTierBump((v) => v + 1)
@@ -477,18 +482,19 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
       searchQueryDraft,
       selectedPersonaId,
       getToken,
+      billingKeyDraft,
     ],
   )
 
   const freeChatBlocked = useMemo(() => {
     if (USE_LOCAL_ONLY) return false
-    if (loadBillingApiKey().trim()) return false
+    if (normalizeBillingApiKey(billingKeyDraft || loadBillingApiKey())) return false
     return getFreeRoundsUsed() >= getFreeChatLimit()
   }, [freeTierBump, billingKeyDraft])
 
   const freeRoundsForUi = useMemo(() => {
     if (USE_LOCAL_ONLY) return null
-    if (loadBillingApiKey().trim()) return null
+    if (normalizeBillingApiKey(billingKeyDraft || loadBillingApiKey())) return null
     const lim = getFreeChatLimit()
     const used = getFreeRoundsUsed()
     return { lim, used, rem: Math.max(0, lim - used) }
@@ -596,7 +602,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
             />
           </label>
           <label className="billing-credential-field billing-credential-field--key">
-            <span className="billing-credential-label">API Key</span>
+            <span className="billing-credential-label">API Key（仅 sk_ 英文/数字，勿填中文用户名）</span>
             <div className="billing-key-row">
               <input
                 className="billing-credential-input billing-key-input"

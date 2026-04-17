@@ -1,9 +1,12 @@
+import { normalizeBillingApiKey } from './billingKeyUtils'
+
 const KEY = 'howie_billing_api_key_v1'
 const USERNAME_KEY = 'howie_billing_username_v1'
 
 export function loadBillingApiKey(): string {
   try {
-    return localStorage.getItem(KEY)?.trim() ?? ''
+    const raw = localStorage.getItem(KEY) ?? ''
+    return normalizeBillingApiKey(raw)
   } catch {
     return ''
   }
@@ -11,7 +14,7 @@ export function loadBillingApiKey(): string {
 
 export function saveBillingApiKey(key: string): void {
   try {
-    localStorage.setItem(KEY, key.trim())
+    localStorage.setItem(KEY, normalizeBillingApiKey(key))
   } catch {
     /* ignore */
   }

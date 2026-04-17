@@ -72,6 +72,16 @@ export function mergeMetaToWaitState(
 /**
  * 消费 /api/chat 的 SSE（data: {"t":"..."} | {"meta":...} | {"done":true} | {"error":"..."}）
  */
+/** Fetch 要求请求头值为 ISO-8859-1；若混入中文等会抛错 */
+function latin1HeaderValue(s: string): string {
+  let out = ''
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i)
+    if (c <= 255) out += s[i]!
+  }
+  return out
+}
+
 export async function consumeChatSse(
   url: string,
   body: Record<string, unknown>,
@@ -79,12 +89,15 @@ export async function consumeChatSse(
   onMeta?: (meta: ChatStreamMeta) => void,
   extraHeaders?: Record<string, string>,
 ): Promise<StreamResult> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (extraHeaders) {
+    for (const [k, v] of Object.entries(extraHeaders)) {
+      headers[k] = latin1HeaderValue(v)
+    }
+  }
   const res = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(extraHeaders && Object.keys(extraHeaders).length ? extraHeaders : {}),
-    },
+    headers,
     body: JSON.stringify(body),
   })
 
