@@ -8,6 +8,7 @@ type AccountRow = {
   points_balance: number
   created_at: string
   note: string | null
+  has_key_backup?: boolean
 }
 
 const TOKEN_KEY = 'howie_admin_jwt_v1'
@@ -28,6 +29,67 @@ function saveToken(t: string) {
   }
 }
 
+function makeRandomUsername() {
+  const p = ['青', '墨', '云', '风', '石', '海', '星', '月', '松', '竹']
+  const s = ['客', '友', '户', '员', '君']
+  const a = p[Math.floor(Math.random() * p.length)]
+  const b = s[Math.floor(Math.random() * s.length)]
+  const tail = Math.random().toString(36).slice(2, 10)
+  return `${a}${b}_${tail}`
+}
+
+function maskKey(k: string) {
+  if (k.length <= 14) return '•'.repeat(Math.min(20, k.length))
+  return `${k.slice(0, 10)}${'•'.repeat(18)}${k.slice(-4)}`
+}
+
+function EyeButton({ open, onClick, disabled }: { open: boolean; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      className="admin-eye-btn"
+      disabled={disabled}
+      aria-label={open ? '隐藏完整 Key' : '显示完整 Key'}
+      title={open ? '隐藏' : '显示'}
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
+    >
+      {open ? (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      ) : (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+          <line x1="1" y1="1" x2="23" y2="23" />
+        </svg>
+      )}
+    </button>
+  )
+}
+
+function SecretKeyLine({
+  apiKey,
+  busy,
+  visible,
+  onToggleVisible,
+}: {
+  apiKey: string
+  busy?: boolean
+  visible: boolean
+  onToggleVisible: () => void
+}) {
+  return (
+    <div className="admin-secret-line">
+      <code className="admin-secret-code">{busy ? '…' : visible ? apiKey : maskKey(apiKey)}</code>
+      <EyeButton open={visible} onClick={onToggleVisible} disabled={busy} />
+    </div>
+  )
+}
+
 export default function AdminPanel() {
   const [password, setPassword] = useState('')
   const [token, setToken] = useState(loadToken)
@@ -35,12 +97,15 @@ export default function AdminPanel() {
   const [err, setErr] = useState('')
   const [accounts, setAccounts] = useState<AccountRow[]>([])
   const [defaultGrant, setDefaultGrant] = useState(10000)
-  const [newUser, setNewUser] = useState('')
+  const [newUser, setNewUser] = useState(makeRandomUsername)
   const [newPoints, setNewPoints] = useState(10000)
   const [newNote, setNewNote] = useState('')
   const [createdKey, setCreatedKey] = useState<string | null>(null)
-  const [topupId, setTopupId] = useState('')
-  const [topupPts, setTopupPts] = useState(10000)
+  const [createdVisible, setCreatedVisible] = useState(false)
+  const [keyCache, setKeyCache] = useState<Record<string, string>>({})
+  const [keyVisible, setKeyVisible] = useState<Record<string, boolean>>({})
+  const [keyLoading, setKeyLoading] = useState<Record<string, boolean>>({})
+  const [topupDraft, setTopupDraft] = useState<Record<string, number>>({})
 
   const authHeaders = useCallback((): Record<string, string> => {
     const t = token.trim()
@@ -91,44 +156,92 @@ export default function AdminPanel() {
     saveToken('')
     setToken('')
     setAccounts([])
+    setKeyCache({})
+    setKeyVisible({})
   }
 
   const createAccount = async () => {
     setBusy(true)
     setErr('')
     setCreatedKey(null)
+    setCreatedVisible(false)
+    const u = newUser.trim() || makeRandomUsername()
     try {
       const r = await fetch('/api/admin-accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({
-          username: newUser.trim(),
+          username: u,
           initialPoints: Number(newPoints) || defaultGrant,
           note: newNote.trim() || undefined,
         }),
       })
-      const j = (await r.json()) as { apiKey?: string; error?: string; warning?: string }
+      const j = (await r.json()) as { apiKey?: string; error?: string }
       if (!r.ok) {
         setErr(j.error || '创建失败')
         return
       }
-      if (j.apiKey) setCreatedKey(j.apiKey)
-      setNewUser('')
+      if (j.apiKey) {
+        setCreatedKey(j.apiKey)
+        setCreatedVisible(false)
+      }
+      setNewUser(makeRandomUsername())
       await loadAccounts()
     } finally {
       setBusy(false)
     }
   }
 
-  const topup = async () => {
-    if (!topupId.trim()) return
+  const fetchFullKey = async (accountId: string) => {
+    setKeyLoading((m) => ({ ...m, [accountId]: true }))
+    setErr('')
+    try {
+      const r = await fetch(`/api/admin-account-key?accountId=${encodeURIComponent(accountId)}`, {
+        headers: { ...authHeaders() },
+      })
+      const j = (await r.json()) as { apiKey?: string; error?: string }
+      if (!r.ok) {
+        setErr(j.error || '无法获取完整 Key')
+        return
+      }
+      if (j.apiKey) {
+        setKeyCache((m) => ({ ...m, [accountId]: j.apiKey! }))
+        setKeyVisible((m) => ({ ...m, [accountId]: true }))
+      }
+    } finally {
+      setKeyLoading((m) => ({ ...m, [accountId]: false }))
+    }
+  }
+
+  const toggleRowKeyVisible = async (a: AccountRow) => {
+    const id = a.id
+    const hasBackup = Boolean(a.has_key_backup)
+    if (!hasBackup) {
+      setErr('该账户无完整 Key 备份（早期仅存哈希）。可新建账户或联系技术处理。')
+      return
+    }
+    const next = !keyVisible[id]
+    if (next) {
+      if (!keyCache[id]) await fetchFullKey(id)
+      else setKeyVisible((m) => ({ ...m, [id]: true }))
+    } else {
+      setKeyVisible((m) => ({ ...m, [id]: false }))
+    }
+  }
+
+  const topupRow = async (accountId: string) => {
+    const pts = topupDraft[accountId] ?? 10000
+    if (!Number.isFinite(pts) || pts <= 0) {
+      setErr('充值积分须为正数')
+      return
+    }
     setBusy(true)
     setErr('')
     try {
       const r = await fetch('/api/admin-accounts', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ accountId: topupId.trim(), grantPoints: Number(topupPts) || 0 }),
+        body: JSON.stringify({ accountId, grantPoints: pts }),
       })
       const j = (await r.json()) as { error?: string }
       if (!r.ok) {
@@ -150,7 +263,7 @@ export default function AdminPanel() {
           </h1>
           <p className="header-tagline">助理专用 · 创建 API Key 与积分</p>
         </header>
-        <div className="admin-card">
+        <div className="admin-card admin-card--narrow">
           <p className="dock-personal-hint">请输入环境变量 <code>ADMIN_PASSWORD</code> 对应的密码。</p>
           <input
             type="password"
@@ -176,123 +289,167 @@ export default function AdminPanel() {
 
   return (
     <div className="chat-app admin-wrap">
-      <header className="header-brand">
-        <h1 className="header-title">
-          <span className="header-title-gradient">管理后台</span>
-        </h1>
+      <header className="header-brand admin-header-row">
+        <div>
+          <h1 className="header-title">
+            <span className="header-title-gradient">管理后台</span>
+          </h1>
+          <p className="header-tagline admin-header-sub">默认新户积分 {defaultGrant} · 计价 100 tokens ≈ 1 积分</p>
+        </div>
         <button type="button" className="chip" onClick={logout}>
           退出
         </button>
       </header>
 
-      <div className="main-area" style={{ padding: '16px 20px' }}>
-        <p className="dock-personal-hint">
-          默认新户积分：<strong>{defaultGrant}</strong>（可用环境变量 DEFAULT_GRANT_POINTS 调整）。计价：每{' '}
-          <strong>100</strong> tokens 约扣 1 积分（TOKENS_PER_POINT）。
-        </p>
-        <p className="dock-personal-hint">
-          粗算参考：若 DeepSeek 约 ¥2/百万 tokens，则 <strong>¥10</strong> 厂商成本约对应数百万 tokens
-          量级；具体以账单为准。
-        </p>
+      <div className="main-area admin-main">
+        <div className="admin-layout">
+          <section className="admin-panel-col admin-panel-col--form">
+            <div className="admin-card admin-card--flush">
+              <h3 className="admin-h3">新建用户</h3>
+              <div className="admin-form-row">
+                <label className="admin-field-label">用户名</label>
+                <div className="admin-input-with-action">
+                  <input
+                    className="diag-field-input"
+                    placeholder="随机或自填"
+                    value={newUser}
+                    onChange={(e) => setNewUser(e.target.value)}
+                  />
+                  <button type="button" className="chip admin-shuffle-btn" onClick={() => setNewUser(makeRandomUsername())}>
+                    换一批
+                  </button>
+                </div>
+              </div>
+              <div className="admin-form-row admin-form-row--inline">
+                <div className="admin-field-grow">
+                  <label className="admin-field-label">初始积分</label>
+                  <input
+                    className="diag-field-input"
+                    type="number"
+                    value={newPoints}
+                    onChange={(e) => setNewPoints(Number(e.target.value))}
+                  />
+                </div>
+                <div className="admin-field-grow">
+                  <label className="admin-field-label">备注（可选）</label>
+                  <input
+                    className="diag-field-input"
+                    placeholder="备注"
+                    value={newNote}
+                    onChange={(e) => setNewNote(e.target.value)}
+                  />
+                </div>
+              </div>
+              {createdKey ? (
+                <div className="admin-created">
+                  <p className="admin-created-title">
+                    <strong>新生成的 API Key</strong>
+                    <span className="admin-created-hint">（可随时在下方列表用眼睛查看，需配置 ADMIN_SECRET）</span>
+                  </p>
+                  <SecretKeyLine
+                    apiKey={createdKey}
+                    visible={createdVisible}
+                    onToggleVisible={() => setCreatedVisible((v) => !v)}
+                  />
+                </div>
+              ) : null}
+              {err ? <p className="admin-err">{err}</p> : null}
+              <button type="button" className="diag-first-submit" disabled={busy} onClick={() => void createAccount()}>
+                {busy ? '…' : '生成账户与 Key'}
+              </button>
+            </div>
+          </section>
 
-        <div className="admin-card" style={{ marginTop: 16 }}>
-          <h3 className="admin-h3">新建用户</h3>
-          <input
-            className="diag-field-input"
-            placeholder="用户名（唯一）"
-            value={newUser}
-            onChange={(e) => setNewUser(e.target.value)}
-          />
-          <input
-            className="diag-field-input"
-            type="number"
-            placeholder="初始积分"
-            value={newPoints}
-            onChange={(e) => setNewPoints(Number(e.target.value))}
-            style={{ marginTop: 8 }}
-          />
-          <input
-            className="diag-field-input"
-            placeholder="备注（可选）"
-            value={newNote}
-            onChange={(e) => setNewNote(e.target.value)}
-            style={{ marginTop: 8 }}
-          />
-          {createdKey ? (
-            <p className="admin-created">
-              <strong>请立即保存 API Key（只显示一次）：</strong>
-              <code>{createdKey}</code>
-            </p>
-          ) : null}
-          {err ? <p className="admin-err">{err}</p> : null}
-          <button type="button" className="diag-first-submit" disabled={busy} onClick={() => void createAccount()}>
-            生成账户与 Key
-          </button>
+          <section className="admin-panel-col admin-panel-col--table">
+            <div className="admin-card admin-card--flush">
+              <h3 className="admin-h3">全部用户</h3>
+              <p className="dock-personal-hint admin-table-hint">
+                在表格中复制用户 ID、查看完整 Key、续费充值。完整 Key 依赖库内加密备份；旧账户可能仅有前缀。
+              </p>
+              <div className="admin-table-wrap">
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>用户 ID</th>
+                      <th>用户名</th>
+                      <th>API Key</th>
+                      <th>积分</th>
+                      <th>续费</th>
+                      <th>备注</th>
+                      <th>创建时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {accounts.map((a) => {
+                      const full = keyCache[a.id]
+                      const vis = keyVisible[a.id]
+                      const loading = keyLoading[a.id]
+                      const hasBackup = Boolean(a.has_key_backup)
+                      const display =
+                        full && vis ? full : full && !vis ? maskKey(full) : `${a.api_key_prefix}…`
+                      return (
+                        <tr key={a.id}>
+                          <td className="admin-mono admin-id" title={a.id}>
+                            <button
+                              type="button"
+                              className="admin-id-btn"
+                              onClick={() => void navigator.clipboard.writeText(a.id)}
+                            >
+                              {a.id.slice(0, 8)}… 复制
+                            </button>
+                          </td>
+                          <td>{a.username}</td>
+                          <td className="admin-key-cell">
+                            <div className="admin-key-wrap">
+                              <code className="admin-key-text" title={full && vis ? full : undefined}>
+                                {loading ? '…' : display}
+                              </code>
+                              <EyeButton
+                                open={Boolean(full && vis)}
+                                disabled={loading || !hasBackup}
+                                onClick={() => void toggleRowKeyVisible(a)}
+                              />
+                            </div>
+                            {!hasBackup ? <span className="admin-key-warn">无备份</span> : null}
+                          </td>
+                          <td>{a.points_balance}</td>
+                          <td>
+                            <div className="admin-row-topup">
+                              <input
+                                type="number"
+                                className="admin-topup-input"
+                                min={1}
+                                value={topupDraft[a.id] ?? 10000}
+                                onChange={(e) =>
+                                  setTopupDraft((m) => ({
+                                    ...m,
+                                    [a.id]: Number(e.target.value),
+                                  }))
+                                }
+                              />
+                              <button
+                                type="button"
+                                className="chip chip--cta admin-topup-go"
+                                disabled={busy}
+                                onClick={() => void topupRow(a.id)}
+                              >
+                                充值
+                              </button>
+                            </div>
+                          </td>
+                          <td>{a.note || '—'}</td>
+                          <td className="admin-mono admin-time">{new Date(a.created_at).toLocaleString()}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
         </div>
 
-        <div className="admin-card" style={{ marginTop: 16 }}>
-          <h3 className="admin-h3">续费充值</h3>
-          <input
-            className="diag-field-input"
-            placeholder="用户 UUID（从下方表格复制）"
-            value={topupId}
-            onChange={(e) => setTopupId(e.target.value)}
-          />
-          <input
-            className="diag-field-input"
-            type="number"
-            placeholder="增加积分"
-            value={topupPts}
-            onChange={(e) => setTopupPts(Number(e.target.value))}
-            style={{ marginTop: 8 }}
-          />
-          <button type="button" className="chip chip--cta" style={{ marginTop: 10 }} disabled={busy} onClick={() => void topup()}>
-            充值
-          </button>
-        </div>
-
-        <div className="admin-card" style={{ marginTop: 16 }}>
-          <h3 className="admin-h3">全部用户</h3>
-          <div className="admin-table-wrap">
-            <table className="admin-table">
-              <thead>
-                <tr>
-                  <th>用户 ID（充值用）</th>
-                  <th>用户名</th>
-                  <th>Key 前缀</th>
-                  <th>积分</th>
-                  <th>备注</th>
-                  <th>创建时间</th>
-                </tr>
-              </thead>
-              <tbody>
-                {accounts.map((a) => (
-                  <tr key={a.id}>
-                    <td className="admin-mono admin-id" title={a.id}>
-                      <button
-                        type="button"
-                        className="admin-id-btn"
-                        onClick={() => void navigator.clipboard.writeText(a.id)}
-                      >
-                        {a.id.slice(0, 8)}… 复制
-                      </button>
-                    </td>
-                    <td>{a.username}</td>
-                    <td>
-                      <code>{a.api_key_prefix}</code>
-                    </td>
-                    <td>{a.points_balance}</td>
-                    <td>{a.note || '—'}</td>
-                    <td className="admin-mono">{new Date(a.created_at).toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="dock-personal-hint">充值时请粘贴完整用户 ID（可点击行内复制，或从数据库查看）。</p>
-        </div>
-
-        <p className="dock-personal-hint" style={{ marginTop: 16 }}>
+        <p className="dock-personal-hint admin-footer-link">
           <a href="/" className="admin-link">
             ← 返回对话
           </a>

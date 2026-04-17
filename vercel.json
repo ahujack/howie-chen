@@ -23,6 +23,9 @@
     },
     "api/admin-accounts.js": {
       "maxDuration": 30
+    },
+    "api/admin-account-key.js": {
+      "maxDuration": 15
     }
   },
   "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }]

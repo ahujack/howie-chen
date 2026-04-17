@@ -1,13 +1,24 @@
 /**
  * 本地起微型 HTTP，挂载 /api/chat、/api/persona、/api/health。
  * 用法：node scripts/dev-api-server.cjs
+ * 环境：自动加载项目根目录 .env.local（需 devDependency dotenv）
  */
+const path = require('path')
+try {
+  require('dotenv').config({ path: path.join(__dirname, '..', '.env.local') })
+} catch (e) {
+  if (e.code !== 'MODULE_NOT_FOUND') throw e
+}
 const http = require('http')
 const { URL } = require('url')
 const chatHandler = require('../api/chat.js')
 const healthHandler = require('../api/health.js')
 const personaHandler = require('../api/persona.js')
 const hotTrendsHandler = require('../api/hot-trends.js')
+const adminLoginHandler = require('../api/admin-login.js')
+const adminAccountsHandler = require('../api/admin-accounts.js')
+const adminAccountKeyHandler = require('../api/admin-account-key.js')
+const billingMeHandler = require('../api/billing-me.js')
 
 const PORT = Number(process.env.PORT || 8787)
 
@@ -112,6 +123,61 @@ const server = http.createServer(async (req, res) => {
       return
     }
 
+    if (pathname === '/api/admin-login') {
+      const vres = attachVercelLikeRes(res)
+      if (req.method === 'OPTIONS') {
+        await adminLoginHandler({ method: 'OPTIONS', body: {}, headers: req.headers, query }, vres)
+        return
+      }
+      if (req.method === 'POST') {
+        const body = await readJsonBody(req)
+        await adminLoginHandler({ method: 'POST', body, headers: req.headers, query }, vres)
+        return
+      }
+    }
+
+    if (pathname === '/api/admin-accounts') {
+      const vres = attachVercelLikeRes(res)
+      if (req.method === 'OPTIONS') {
+        await adminAccountsHandler({ method: 'OPTIONS', body: {}, headers: req.headers, query }, vres)
+        return
+      }
+      if (req.method === 'GET') {
+        await adminAccountsHandler({ method: 'GET', body: {}, headers: req.headers, query }, vres)
+        return
+      }
+      let body = {}
+      if (req.method === 'POST' || req.method === 'PATCH') {
+        body = await readJsonBody(req)
+      }
+      await adminAccountsHandler({ method: req.method, body, headers: req.headers, query }, vres)
+      return
+    }
+
+    if (pathname === '/api/admin-account-key') {
+      const vres = attachVercelLikeRes(res)
+      if (req.method === 'OPTIONS') {
+        await adminAccountKeyHandler({ method: 'OPTIONS', body: {}, headers: req.headers, query }, vres)
+        return
+      }
+      if (req.method === 'GET') {
+        await adminAccountKeyHandler({ method: 'GET', body: {}, headers: req.headers, query }, vres)
+        return
+      }
+    }
+
+    if (pathname === '/api/billing-me') {
+      const vres = attachVercelLikeRes(res)
+      if (req.method === 'OPTIONS') {
+        await billingMeHandler({ method: 'OPTIONS', body: {}, headers: req.headers, query }, vres)
+        return
+      }
+      if (req.method === 'GET') {
+        await billingMeHandler({ method: 'GET', body: {}, headers: req.headers, query }, vres)
+        return
+      }
+    }
+
     res.statusCode = 404
     res.setHeader('Content-Type', 'text/plain')
     res.end('Not found. Try GET /api/health, /api/hot-trends, POST /api/chat, /api/persona')
@@ -126,5 +192,7 @@ const server = http.createServer(async (req, res) => {
 })
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`dev api: http://127.0.0.1:${PORT}/api/health | /api/hot-trends | /api/chat | /api/persona`)
+  console.log(
+    `dev api: http://127.0.0.1:${PORT}/api/health | /api/chat | /api/persona | /api/admin-* | /api/billing-me`,
+  )
 })

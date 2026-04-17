@@ -43,6 +43,7 @@ async function ensureBillingTables() {
     );
     CREATE INDEX IF NOT EXISTS idx_points_ledger_account ON points_ledger (account_id, created_at DESC);
   `)
+  await pool.query(`ALTER TABLE billing_accounts ADD COLUMN IF NOT EXISTS api_key_enc TEXT`)
   ensuredBilling = true
 }
 
@@ -56,6 +57,39 @@ function generateApiKey() {
 
 function hashApiKey(apiKey) {
   return sha256hex(apiKey.trim())
+}
+
+/** 用 ADMIN_SECRET 派生密钥，存库以便管理端解密展示（仅存密文，校验仍用哈希） */
+function getAdminEncKeyBuf() {
+  const s = process.env.ADMIN_SECRET || ''
+  if (s.length < 16) return null
+  return crypto.createHash('sha256').update(`billing_api_key_enc_v1:${s}`, 'utf8').digest()
+}
+
+function encryptApiKeyForAdmin(plain) {
+  const key = getAdminEncKeyBuf()
+  if (!key) return null
+  const iv = crypto.randomBytes(12)
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv)
+  const enc = Buffer.concat([cipher.update(String(plain), 'utf8'), cipher.final()])
+  const tag = cipher.getAuthTag()
+  return Buffer.concat([iv, tag, enc]).toString('base64')
+}
+
+function decryptApiKeyForAdmin(stored) {
+  const key = getAdminEncKeyBuf()
+  if (!key || !stored) return null
+  try {
+    const buf = Buffer.from(String(stored), 'base64')
+    const iv = buf.subarray(0, 12)
+    const tag = buf.subarray(12, 28)
+    const data = buf.subarray(28)
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv)
+    decipher.setAuthTag(tag)
+    return Buffer.concat([decipher.update(data), decipher.final()]).toString('utf8')
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -154,16 +188,17 @@ async function createAccount(username, initialPoints, note) {
   const apiKey = generateApiKey()
   const prefix = apiKey.slice(0, 10)
   const hash = hashApiKey(apiKey)
+  const enc = encryptApiKeyForAdmin(apiKey)
   const pts = Number.isFinite(initialPoints) ? Math.max(0, Math.floor(initialPoints)) : DEFAULT_GRANT_POINTS
 
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
     const r = await client.query(
-      `INSERT INTO billing_accounts (username, api_key_hash, api_key_prefix, points_balance, note)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO billing_accounts (username, api_key_hash, api_key_prefix, points_balance, note, api_key_enc)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, points_balance`,
-      [u, hash, prefix, pts, note ? String(note).slice(0, 500) : null],
+      [u, hash, prefix, pts, note ? String(note).slice(0, 500) : null, enc],
     )
     const id = r.rows[0].id
     await client.query(
@@ -221,9 +256,28 @@ async function listAccounts() {
   const pool = getPool()
   if (!pool) throw new Error('数据库未配置')
   const r = await pool.query(
-    `SELECT id, username, api_key_prefix, points_balance, created_at, note FROM billing_accounts ORDER BY created_at DESC`,
+    `SELECT id, username, api_key_prefix, points_balance, created_at, note,
+            (api_key_enc IS NOT NULL AND length(trim(api_key_enc)) > 0) AS has_key_backup
+     FROM billing_accounts ORDER BY created_at DESC`,
   )
   return r.rows
+}
+
+/**
+ * 管理端解密展示（需 ADMIN_SECRET 与创建时一致）
+ * @returns {Promise<{ ok: true, apiKey: string } | { ok: false, reason: string }>}
+ */
+async function getFullApiKeyForAdmin(accountId) {
+  await ensureBillingTables()
+  const pool = getPool()
+  if (!pool) throw new Error('数据库未配置')
+  const r = await pool.query(`SELECT api_key_enc FROM billing_accounts WHERE id = $1`, [accountId])
+  if (r.rowCount === 0) return { ok: false, reason: 'not_found' }
+  const enc = r.rows[0].api_key_enc
+  if (!enc || !String(enc).trim()) return { ok: false, reason: 'no_backup' }
+  const plain = decryptApiKeyForAdmin(enc)
+  if (!plain) return { ok: false, reason: 'decrypt_failed' }
+  return { ok: true, apiKey: plain }
 }
 
 module.exports = {
@@ -238,4 +292,5 @@ module.exports = {
   createAccount,
   grantTopUp,
   listAccounts,
+  getFullApiKeyForAdmin,
 }
