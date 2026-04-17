@@ -1,11 +1,11 @@
-const { verifyAdminBearer } = require('./adminAuth.js')
+const { verifyAdminBearer } = require('../lib/adminAuth.js')
 const {
   createAccount,
   listAccounts,
   grantTopUp,
   DEFAULT_GRANT_POINTS,
   TOKENS_PER_POINT,
-} = require('./billingCore.js')
+} = require('../lib/billingCore.js')
 
 function corsJson(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')

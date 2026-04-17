@@ -1,4 +1,4 @@
-const { signAdminToken, verifyAdminPassword, getAdminSecret } = require('./adminAuth.js')
+const { signAdminToken, verifyAdminPassword, getAdminSecret } = require('../lib/adminAuth.js')
 
 function corsJson(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')

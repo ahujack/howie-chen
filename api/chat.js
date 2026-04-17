@@ -1,18 +1,18 @@
 /**
- * 本目录有 package.json "type":"commonjs"，故可用 module.exports；
- * 根目录仍为 "type":"module"（Vite），互不影响。Vercel 只识别 api/*.js 为 Serverless。
+ * 仅 api/*.js 会部署为 Vercel Serverless（Hobby 有数量上限）；共享逻辑放在 ../lib/。
+ * 根目录 package.json 为 "type":"module"（Vite）；本文件在 Node 中按 CommonJS 解析。
  */
 
 const fs = require('fs')
 const path = require('path')
-const HOT_ROOTS = require('./hotRoots.js')
-const { getPool, ensurePersonaTable } = require('./db.js')
-const { verifyClerkBearer } = require('./auth.js')
+const HOT_ROOTS = require('../lib/hotRoots.js')
+const { getPool, ensurePersonaTable } = require('../lib/db.js')
+const { verifyClerkBearer } = require('../lib/auth.js')
 const {
   findAccountByApiKey,
   deductPointsForChat,
   estimateTokensFromTurns,
-} = require('./billingCore.js')
+} = require('../lib/billingCore.js')
 
 const REQUIRE_API_KEY = process.env.REQUIRE_API_KEY === 'true'
 

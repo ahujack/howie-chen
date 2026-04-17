@@ -1,8 +1,8 @@
 /**
  * 云端人设 CRUD；需 Authorization: Bearer <Clerk session JWT> + DATABASE_URL
  */
-const { getPool, ensurePersonaTable } = require('./db.js')
-const { verifyClerkBearer } = require('./auth.js')
+const { getPool, ensurePersonaTable } = require('../lib/db.js')
+const { verifyClerkBearer } = require('../lib/auth.js')
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')

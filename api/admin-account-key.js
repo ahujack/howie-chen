@@ -1,5 +1,5 @@
-const { verifyAdminBearer } = require('./adminAuth.js')
-const { getFullApiKeyForAdmin } = require('./billingCore.js')
+const { verifyAdminBearer } = require('../lib/adminAuth.js')
+const { getFullApiKeyForAdmin } = require('../lib/billingCore.js')
 
 function corsJson(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
