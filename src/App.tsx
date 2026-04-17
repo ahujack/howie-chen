@@ -839,7 +839,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
         <p className="billing-credential-hint">
           与右侧「登录」是两套体系：Clerk 用于人设与同步；此处填管理员下发的完整 <code>sk_</code> Key 用于计费（请求头{' '}
           <code>X-API-Key</code>）。不填或格式不完整时按「免费体验」轮次对话（仅前端计数）。若部署环境开启{' '}
-          <code>REQUIRE_API_KEY</code>，则服务端会要求有效 Key。保存并收起后可在右上角查看用户名与积分。
+          <code>BLOCK_ANONYMOUS_CHAT</code>，则服务端会拒绝未带头请求。保存并收起后可在右上角查看用户名与积分。
         </p>
       </section>
       ) : null}

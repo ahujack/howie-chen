@@ -9,9 +9,12 @@ export function userFacingChatError(raw: string): string {
   const lower = t.toLowerCase()
 
   if (
-    /无效的\s*x-api-key|需要有效的\s*x-api-key|invalid[`\s]*x-api-key/i.test(t) ||
+    /无效的\s*x-api-key|需要有效的\s*x-api-key|未携带有效计费\s*key|invalid[`\s]*x-api-key/i.test(t) ||
     (lower.includes('x-api-key') && /invalid|无效|unauthorized|401/.test(lower))
   ) {
+    if (/未携带有效计费|block_anonymous|拒绝未带头/i.test(t)) {
+      return '当前部署要求必须携带有效计费 Key 才能对话。若应支持未填 Key 的免费体验，请联系管理员关闭服务端限制。'
+    }
     return '计费 Key 校验未通过：请检查页面右上角已保存的 API Key 是否正确，或联系管理员。'
   }
 

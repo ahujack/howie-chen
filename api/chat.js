@@ -15,7 +15,12 @@ const {
 } = require('../lib/billingCore.cjs')
 const { parseApiKeyFromReq, billingUserSub } = require('../lib/personaIdentity.cjs')
 
-const REQUIRE_API_KEY = process.env.REQUIRE_API_KEY === 'true'
+/**
+ * 未带有效 X-API-Key 时是否拒绝 /api/chat。默认 false，与前端「未填 Key 可免费体验」一致。
+ * 内网/强管控可设 BLOCK_ANONYMOUS_CHAT=true。
+ * 注意：不再读取 REQUIRE_API_KEY；若曾开启，请从环境变量中删除 REQUIRE_API_KEY=true，否则仍会误以为「无 Key 不能聊」。
+ */
+const BLOCK_ANONYMOUS_CHAT = process.env.BLOCK_ANONYMOUS_CHAT === 'true'
 
 /** OpenClaw / 方面陈 内容创作知识库（与仓库 api/kb-howie-content.md 同步；vercel.json includeFiles 需包含该文件） */
 let HOWIE_KB_MD = ''
@@ -537,23 +542,17 @@ module.exports = async function handler(req, res) {
         return
       }
     }
-    if (REQUIRE_API_KEY) {
-      if (!billingAccount) {
-        corsJson(res)
-        res.status(401).json({
-          error:
-            '需要有效的 X-API-Key。请在请求头添加 X-API-Key: sk_…（或 Authorization: Bearer sk_…）。',
-        })
-        return
-      }
-      if ((billingAccount.points_balance ?? 0) < 1) {
-        corsJson(res)
-        res.status(402).json({ error: '积分不足，请续费或联系管理员充值' })
-        return
-      }
-    } else if (billingAccount && (billingAccount.points_balance ?? 0) < 1) {
+    if (BLOCK_ANONYMOUS_CHAT && !billingAccount) {
       corsJson(res)
-      res.status(402).json({ error: '积分不足' })
+      res.status(401).json({
+        error:
+          '未携带有效计费 Key：请在请求头添加 X-API-Key: sk_…（或 Authorization: Bearer sk_…）。若需允许未填 Key 的免费体验，请勿设置 BLOCK_ANONYMOUS_CHAT，并删除环境中的 REQUIRE_API_KEY（旧变量已不再生效）。',
+      })
+      return
+    }
+    if (billingAccount && (billingAccount.points_balance ?? 0) < 1) {
+      corsJson(res)
+      res.status(402).json({ error: '积分不足，请续费或联系管理员充值' })
       return
     }
 
