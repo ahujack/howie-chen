@@ -191,6 +191,28 @@
   background: rgba(15, 23, 42, 0.85);
 }
 
+.billing-free-rounds {
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: #fde68a;
+}
+
+.billing-free-rounds strong {
+  color: #fef08a;
+}
+
+.chat-guard-banner {
+  margin: 0 16px 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.35);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+}
+
 .main-area {
   flex: 1;
   min-height: 0;

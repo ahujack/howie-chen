@@ -42,10 +42,12 @@ type Variant = 'hk' | 'universal'
 
 export function DiagnosticFirstRoundForm({
   busy,
+  freeChatBlocked,
   variant,
   onSubmit,
 }: {
   busy: boolean
+  freeChatBlocked?: boolean
   variant: Variant
   onSubmit: (job: string, aiUsage: string, goal: string) => void
 }) {
@@ -61,6 +63,7 @@ export function DiagnosticFirstRoundForm({
       : '先完成第 1 步：下面三项会拼成一条消息发出。也可改在底部输入框自行输入首轮内容。'
 
   const send = () => {
+    if (freeChatBlocked) return
     const j = job.trim()
     const a = aiUsage.trim()
     const g = goal.trim()
@@ -87,7 +90,7 @@ export function DiagnosticFirstRoundForm({
           id="diag-job"
           className="diag-field-input"
           rows={3}
-          disabled={busy}
+          disabled={busy || freeChatBlocked}
           placeholder="例如：跨境电商运营 / 港险团队主管 / 独立设计师……"
           value={job}
           onChange={(e) => setJob(e.target.value)}
@@ -104,7 +107,7 @@ export function DiagnosticFirstRoundForm({
           id="diag-ai"
           className="diag-field-input"
           rows={3}
-          disabled={busy}
+          disabled={busy || freeChatBlocked}
           placeholder="例如：只用 ChatGPT 写邮件 / 完全没用 / 用 Claude 写脚本……"
           value={aiUsage}
           onChange={(e) => setAiUsage(e.target.value)}
@@ -121,7 +124,7 @@ export function DiagnosticFirstRoundForm({
           id="diag-goal"
           className="diag-field-input"
           rows={3}
-          disabled={busy}
+          disabled={busy || freeChatBlocked}
           placeholder="例如：把周报从 2 小时压到 20 分钟 / 统一团队话术……"
           value={goal}
           onChange={(e) => setGoal(e.target.value)}
@@ -129,8 +132,13 @@ export function DiagnosticFirstRoundForm({
         />
       </div>
 
-      <button type="button" className="diag-first-submit" disabled={busy} onClick={send}>
-        {busy ? '发送中…' : '发送首轮三问'}
+      <button
+        type="button"
+        className="diag-first-submit"
+        disabled={busy || freeChatBlocked}
+        onClick={send}
+      >
+        {busy ? '发送中…' : freeChatBlocked ? '请先填写 API Key' : '发送首轮三问'}
       </button>
     </div>
   )

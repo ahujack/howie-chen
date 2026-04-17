@@ -6,7 +6,7 @@ import {
   useAuth,
   UserButton,
 } from '@clerk/clerk-react'
-import { Fragment, useCallback, useEffect, useId, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { buildLocalReply } from './chatReply'
 import { CREATION_STAGE_OPTIONS, HERO_GREETING, HERO_INTRO, QUICK_CHIPS, WELCOME_MESSAGE } from './copy'
 import { fetchHotTrendsMarkdown } from './fetchHotTrends'
@@ -32,6 +32,7 @@ import {
   saveBillingApiKey,
   saveBillingUsername,
 } from './billingStorage'
+import { getFreeChatLimit, getFreeRoundsUsed, incrementFreeRoundsUsed } from './freeChatLimit'
 import { DiagnosticFirstRoundForm, DiagnosticStepper } from './DiagnosticUI'
 import { ChatWaitPanel, PinnedRetrievalCard, type PinnedRetrieval } from './StreamProgress'
 import { consumeChatSse, mergeMetaToWaitState, type WaitPanelState } from './streamChat'
@@ -153,6 +154,8 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   const [billingKeyDraft, setBillingKeyDraft] = useState(loadBillingApiKey)
   const [billingUsernameDraft, setBillingUsernameDraft] = useState(loadBillingUsername)
   const [billingCopyHint, setBillingCopyHint] = useState('')
+  const [guardMsg, setGuardMsg] = useState('')
+  const [freeTierBump, setFreeTierBump] = useState(0)
   const [pointsBalance, setPointsBalance] = useState<number | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const messagesRef = useRef(messages)
@@ -277,6 +280,21 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
       const text = raw.trim()
       if (!text || busy) return
 
+      if (!USE_LOCAL_ONLY) {
+        const keyAtSend = loadBillingApiKey().trim()
+        if (!keyAtSend) {
+          const lim = getFreeChatLimit()
+          if (getFreeRoundsUsed() >= lim) {
+            setGuardMsg(
+              `免费体验已用完（${lim} 轮）。请联系助理获取 API Key，在上方「计费登录」中填写后即可继续对话。`,
+            )
+            return
+          }
+        }
+      }
+
+      const hadBillingKey = loadBillingApiKey().trim().length > 0
+
       const useWeb =
         opts?.webSearchOverride !== undefined ? opts.webSearchOverride : webSearch
 
@@ -376,8 +394,8 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
       const token = await getToken()
       const extraHeaders: Record<string, string> = {}
       if (token) extraHeaders.Authorization = `Bearer ${token}`
-      const billingKey = loadBillingApiKey().trim()
-      if (billingKey) extraHeaders['X-API-Key'] = billingKey
+      const billingKeyForReq = loadBillingApiKey().trim()
+      if (billingKeyForReq) extraHeaders['X-API-Key'] = billingKeyForReq
 
       const result = await consumeChatSse(
         '/api/chat',
@@ -415,6 +433,11 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
 
       if (result.ok) {
         if (result.billing) setPointsBalance(result.billing.pointsBalance)
+        if (!USE_LOCAL_ONLY && !hadBillingKey) {
+          incrementFreeRoundsUsed()
+          setFreeTierBump((v) => v + 1)
+        }
+        setGuardMsg('')
         if (!assistantId) pushAssistant(uid(), '（无内容）')
         return
       }
@@ -456,6 +479,20 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
       getToken,
     ],
   )
+
+  const freeChatBlocked = useMemo(() => {
+    if (USE_LOCAL_ONLY) return false
+    if (loadBillingApiKey().trim()) return false
+    return getFreeRoundsUsed() >= getFreeChatLimit()
+  }, [freeTierBump, billingKeyDraft])
+
+  const freeRoundsForUi = useMemo(() => {
+    if (USE_LOCAL_ONLY) return null
+    if (loadBillingApiKey().trim()) return null
+    const lim = getFreeChatLimit()
+    const used = getFreeRoundsUsed()
+    return { lim, used, rem: Math.max(0, lim - used) }
+  }, [freeTierBump, billingKeyDraft])
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -570,6 +607,8 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                 onBlur={() => {
                   saveBillingApiKey(billingKeyDraft)
                   void refreshBilling()
+                  if (billingKeyDraft.trim()) setGuardMsg('')
+                  setFreeTierBump((v) => v + 1)
                 }}
                 disabled={busy}
                 placeholder="sk_…（管理员下发，失焦保存）"
@@ -598,6 +637,11 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
             {billingCopyHint}
           </p>
         ) : null}
+        {freeRoundsForUi ? (
+          <p className="billing-free-rounds" role="status">
+            未填 Key 时可免费体验约 <strong>{freeRoundsForUi.rem}</strong> / {freeRoundsForUi.lim} 轮对话（已成功回复计 1 轮）；用完后请向助理索取 Key 填在上方。
+          </p>
+        ) : null}
         <p className="billing-credential-hint">
           与右上角「登录」是两套体系：Clerk 用于人设与同步；此处填管理员下发的 <code>sk_</code> Key 用于计费与对话（请求头{' '}
           <code>X-API-Key</code>）。生产若开启 <code>REQUIRE_API_KEY</code> 则必须填写。
@@ -617,6 +661,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                 <DiagnosticFirstRoundForm
                   key={diagBranchKey}
                   busy={busy}
+                  freeChatBlocked={freeChatBlocked}
                   variant={universalAiPlanner ? 'universal' : 'hk'}
                   onSubmit={handleDiagFirstRound}
                 />
@@ -890,7 +935,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
               key={c.label}
               type="button"
               className="chip"
-              disabled={busy}
+              disabled={busy || freeChatBlocked}
               onClick={() => {
                 if (c.hkInsuranceAiDiagnostician) {
                   setHkInsuranceAiDiagnostician(true)
@@ -919,6 +964,11 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
           ))}
         </div>
 
+        {guardMsg ? (
+          <div className="chat-guard-banner" role="alert">
+            {guardMsg}
+          </div>
+        ) : null}
         <form className="composer" onSubmit={onSubmit}>
           <div className="composer-inner">
             <span className="composer-icon-wrap" aria-hidden>
@@ -927,21 +977,28 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
             <input
               className="composer-input"
               placeholder={
-                diagMode && userMessageCount === 0
-                  ? '或在此输入首轮内容（与上方表单二选一）…'
-                  : diagMode && userMessageCount === 1
-                    ? '第 2 步：回复 AI 的追问…'
-                    : diagMode && userMessageCount >= 2
-                      ? '第 3 步：可继续追问，或请 AI 输出完整诊断…'
-                      : '输入消息…'
+                freeChatBlocked
+                  ? '免费轮次已用完，请向助理索取 API Key 并填在上方计费登录'
+                  : diagMode && userMessageCount === 0
+                    ? '或在此输入首轮内容（与上方表单二选一）…'
+                    : diagMode && userMessageCount === 1
+                      ? '第 2 步：回复 AI 的追问…'
+                      : diagMode && userMessageCount >= 2
+                        ? '第 3 步：可继续追问，或请 AI 输出完整诊断…'
+                        : '输入消息…'
               }
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              disabled={busy}
+              disabled={busy || freeChatBlocked}
               enterKeyHint="send"
               autoComplete="off"
             />
-            <button type="submit" className="send-btn" disabled={busy || !input.trim()} aria-label="发送">
+            <button
+              type="submit"
+              className="send-btn"
+              disabled={busy || !input.trim() || freeChatBlocked}
+              aria-label="发送"
+            >
               <IconSend />
             </button>
           </div>
