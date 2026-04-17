@@ -32,7 +32,7 @@ import {
   saveBillingApiKey,
   saveBillingUsername,
 } from './billingStorage'
-import { normalizeBillingApiKey } from './billingKeyUtils'
+import { looksLikeBillingKey, normalizeBillingApiKey } from './billingKeyUtils'
 
 const BILLING_BAR_COLLAPSED_KEY = 'howie_billing_bar_collapsed_v1'
 import { getFreeChatLimit, getFreeRoundsUsed, incrementFreeRoundsUsed } from './freeChatLimit'
@@ -130,6 +130,64 @@ type ChatAppProps = {
   hasClerk: boolean
 }
 
+function PersonaDockBar(props: {
+  variant: 'key' | 'clerk'
+  selectedPersonaId: string
+  personas: PersonaRow[]
+  busy: boolean
+  personaBusy: boolean
+  onSelectId: (id: string) => void
+  onCreate: () => void
+  onRefresh: () => void
+}) {
+  const {
+    variant,
+    selectedPersonaId,
+    personas,
+    busy,
+    personaBusy,
+    onSelectId,
+    onCreate,
+    onRefresh,
+  } = props
+  return (
+    <div className="persona-bar">
+      <span>云端人设</span>
+      {variant === 'key' ? (
+        <span
+          className="persona-bar-badge"
+          title="使用计费 Key 作为云端账号；与谷歌登录可并存，服务端优先采用已登录身份"
+        >
+          Key 账号
+        </span>
+      ) : null}
+      <select
+        className="dock-select"
+        value={selectedPersonaId}
+        onChange={(e) => onSelectId(e.target.value)}
+        disabled={busy || personaBusy}
+        aria-label="选择云端人设"
+      >
+        {personas.length === 0 ? (
+          <option value="">（无人设，请先创建）</option>
+        ) : (
+          personas.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))
+        )}
+      </select>
+      <button type="button" disabled={busy || personaBusy} onClick={onCreate}>
+        新建默认人设
+      </button>
+      <button type="button" disabled={busy || personaBusy} onClick={onRefresh}>
+        刷新
+      </button>
+    </div>
+  )
+}
+
 function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
@@ -157,13 +215,12 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   const [pinnedRetrieval, setPinnedRetrieval] = useState<PinnedRetrieval | null>(null)
   const [billingKeyDraft, setBillingKeyDraft] = useState(loadBillingApiKey)
   const [billingUsernameDraft, setBillingUsernameDraft] = useState(loadBillingUsername)
-  const [billingCopyHint, setBillingCopyHint] = useState('')
+  const [showBillingKeyPlain, setShowBillingKeyPlain] = useState(false)
   const [guardMsg, setGuardMsg] = useState('')
   const [freeTierBump, setFreeTierBump] = useState(0)
   const [billingBarCollapsed, setBillingBarCollapsed] = useState(() => {
     try {
-      const key = normalizeBillingApiKey(loadBillingApiKey())
-      if (!key) return false
+      if (!looksLikeBillingKey(loadBillingApiKey())) return false
       const f = localStorage.getItem(BILLING_BAR_COLLAPSED_KEY)
       if (f === '0') return false
       return true
@@ -185,8 +242,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   }, [waitPanel])
 
   useEffect(() => {
-    const key = normalizeBillingApiKey(loadBillingApiKey())
-    if (!key) {
+    if (!looksLikeBillingKey(loadBillingApiKey())) {
       setBillingBarCollapsed(false)
       try {
         localStorage.removeItem(BILLING_BAR_COLLAPSED_KEY)
@@ -206,11 +262,13 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   }
 
   const saveBillingAndCollapse = () => {
-    const k = normalizeBillingApiKey(billingKeyDraft)
-    if (!k) {
-      setGuardMsg('请填写以 sk_ 开头的有效 API Key 后再保存。')
+    if (!looksLikeBillingKey(billingKeyDraft)) {
+      setGuardMsg(
+        '请粘贴完整的管理员下发的 sk_ Key（sk_ 后共 48 位字母数字），或清空后使用免费体验轮次。',
+      )
       return
     }
+    const k = normalizeBillingApiKey(billingKeyDraft)
     saveBillingApiKey(billingKeyDraft)
     saveBillingUsername(billingUsernameDraft)
     setBillingKeyDraft(k)
@@ -220,15 +278,26 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
     persistBillingCollapsed(true)
   }
 
-  const refreshPersonas = useCallback(async () => {
+  const buildPersonaFetchHeaders = useCallback(async (): Promise<Record<string, string> | null> => {
+    const headers: Record<string, string> = {}
     const t = await getToken()
-    if (!t) {
+    const raw = billingKeyDraft || loadBillingApiKey()
+    const k = looksLikeBillingKey(raw) ? normalizeBillingApiKey(raw) : ''
+    if (t) headers.Authorization = `Bearer ${t}`
+    if (k) headers['X-API-Key'] = k
+    if (!t && !k) return null
+    return headers
+  }, [getToken, billingKeyDraft, freeTierBump])
+
+  const refreshPersonas = useCallback(async () => {
+    const headers = await buildPersonaFetchHeaders()
+    if (!headers) {
       setPersonas([])
       setSelectedPersonaId('')
       return
     }
     try {
-      const r = await fetch('/api/persona', { headers: { Authorization: `Bearer ${t}` } })
+      const r = await fetch('/api/persona', { headers })
       if (!r.ok) return
       const j = (await r.json()) as { personas?: PersonaRow[] }
       const list = j.personas ?? []
@@ -240,18 +309,19 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
     } catch {
       /* ignore */
     }
-  }, [getToken])
+  }, [buildPersonaFetchHeaders])
 
   useEffect(() => {
     void refreshPersonas()
   }, [refreshPersonas])
 
   const refreshBilling = useCallback(async () => {
-    const k = normalizeBillingApiKey(loadBillingApiKey())
-    if (!k) {
+    const raw = loadBillingApiKey()
+    if (!looksLikeBillingKey(raw)) {
       setPointsBalance(null)
       return
     }
+    const k = normalizeBillingApiKey(raw)
     try {
       const r = await fetch('/api/billing-me', { headers: { 'X-API-Key': k } })
       if (!r.ok) {
@@ -263,6 +333,20 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
     } catch {
       setPointsBalance(null)
     }
+  }, [freeTierBump])
+
+  const clearBillingKeyAndUseFree = useCallback(() => {
+    saveBillingApiKey('')
+    setBillingKeyDraft('')
+    setPointsBalance(null)
+    setGuardMsg('')
+    setFreeTierBump((v) => v + 1)
+    try {
+      localStorage.setItem(BILLING_BAR_COLLAPSED_KEY, '0')
+    } catch {
+      /* ignore */
+    }
+    setBillingBarCollapsed(false)
   }, [])
 
   useEffect(() => {
@@ -304,13 +388,13 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   }, [diagBranchKey])
 
   const createDefaultPersona = useCallback(async () => {
-    const t = await getToken()
-    if (!t) return
+    const headers = await buildPersonaFetchHeaders()
+    if (!headers) return
     setPersonaBusy(true)
     try {
       const r = await fetch('/api/persona', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` },
+        headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: '我的人设',
           five_dims: { value: '', audience: '', persona: '', type: '', style: '' },
@@ -324,28 +408,31 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
     } finally {
       setPersonaBusy(false)
     }
-  }, [getToken, refreshPersonas])
+  }, [buildPersonaFetchHeaders, refreshPersonas])
 
   const sendText = useCallback(
     async (raw: string, opts?: SendOpts) => {
       const text = raw.trim()
       if (!text || busy) return
 
-      const billingKeyEffective = normalizeBillingApiKey(billingKeyDraft || loadBillingApiKey())
+      const billingKeyRaw = billingKeyDraft || loadBillingApiKey()
+      const billingKeyForRequest = looksLikeBillingKey(billingKeyRaw)
+        ? normalizeBillingApiKey(billingKeyRaw)
+        : ''
 
       if (!USE_LOCAL_ONLY) {
-        if (!billingKeyEffective) {
+        if (!billingKeyForRequest) {
           const lim = getFreeChatLimit()
           if (getFreeRoundsUsed() >= lim) {
             setGuardMsg(
-              `免费体验已用完（${lim} 轮）。请联系助理获取 API Key，在上方「计费登录」中填写后即可继续对话。`,
+              `免费体验已用完（${lim} 轮）。请在「计费登录」填写完整 sk_ Key，或联系管理员。`,
             )
             return
           }
         }
       }
 
-      const hadBillingKey = billingKeyEffective.length > 0
+      const hadBillingKey = billingKeyForRequest.length > 0
 
       const useWeb =
         opts?.webSearchOverride !== undefined ? opts.webSearchOverride : webSearch
@@ -446,7 +533,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
       const token = await getToken()
       const extraHeaders: Record<string, string> = {}
       if (token) extraHeaders.Authorization = `Bearer ${token}`
-      if (billingKeyEffective) extraHeaders['X-API-Key'] = billingKeyEffective
+      if (billingKeyForRequest) extraHeaders['X-API-Key'] = billingKeyForRequest
 
       const result = await consumeChatSse(
         '/api/chat',
@@ -484,9 +571,9 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
 
       if (result.ok) {
         if (result.billing) setPointsBalance(result.billing.pointsBalance)
-        if (billingKeyEffective) {
-          saveBillingApiKey(billingKeyEffective)
-          setBillingKeyDraft(billingKeyEffective)
+        if (billingKeyForRequest) {
+          saveBillingApiKey(billingKeyForRequest)
+          setBillingKeyDraft(billingKeyForRequest)
         }
         if (!USE_LOCAL_ONLY && !hadBillingKey) {
           incrementFreeRoundsUsed()
@@ -531,20 +618,25 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
 
   const freeChatBlocked = useMemo(() => {
     if (USE_LOCAL_ONLY) return false
-    if (normalizeBillingApiKey(billingKeyDraft || loadBillingApiKey())) return false
+    if (looksLikeBillingKey(billingKeyDraft || loadBillingApiKey())) return false
     return getFreeRoundsUsed() >= getFreeChatLimit()
   }, [freeTierBump, billingKeyDraft])
 
   const freeRoundsForUi = useMemo(() => {
     if (USE_LOCAL_ONLY) return null
-    if (normalizeBillingApiKey(billingKeyDraft || loadBillingApiKey())) return null
+    if (looksLikeBillingKey(billingKeyDraft || loadBillingApiKey())) return null
     const lim = getFreeChatLimit()
     const used = getFreeRoundsUsed()
     return { lim, used, rem: Math.max(0, lim - used) }
   }, [freeTierBump, billingKeyDraft])
 
   const hasSavedBillingKey = useMemo(
-    () => normalizeBillingApiKey(loadBillingApiKey()).length > 0,
+    () => looksLikeBillingKey(billingKeyDraft || loadBillingApiKey()),
+    [freeTierBump, billingKeyDraft],
+  )
+
+  const showPersonaBarByKey = useMemo(
+    () => looksLikeBillingKey(billingKeyDraft || loadBillingApiKey()),
     [freeTierBump, billingKeyDraft],
   )
 
@@ -553,7 +645,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   const billingCompactTitle = useMemo(() => {
     const nick =
       billingUsernameDraft.trim() || loadBillingUsername().trim() || '计费账户'
-    const keyOk = Boolean(normalizeBillingApiKey(billingKeyDraft || loadBillingApiKey()))
+    const keyOk = looksLikeBillingKey(billingKeyDraft || loadBillingApiKey())
     const pts =
       pointsBalance != null
         ? `积分 ${pointsBalance.toLocaleString('zh-CN')}`
@@ -678,39 +770,46 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
             />
           </label>
           <label className="billing-credential-field billing-credential-field--key">
-            <span className="billing-credential-label">API Key（仅 sk_ 英文/数字，勿填中文用户名）</span>
+            <span className="billing-credential-label">API Key（sk_ 开头，完整 51 位；留空可走免费体验）</span>
             <div className="billing-key-row">
-              <input
-                className="billing-credential-input billing-key-input"
-                type="password"
-                autoComplete="off"
-                value={billingKeyDraft}
-                onChange={(e) => setBillingKeyDraft(e.target.value)}
-                onBlur={() => {
-                  saveBillingApiKey(billingKeyDraft)
-                  void refreshBilling()
-                  if (billingKeyDraft.trim()) setGuardMsg('')
-                  setFreeTierBump((v) => v + 1)
-                }}
-                disabled={busy}
-                placeholder="sk_…（管理员下发，失焦保存）"
-                spellCheck={false}
-              />
-              <button
-                type="button"
-                className="chip billing-copy-btn"
-                disabled={busy || !billingKeyDraft.trim()}
-                onClick={() => {
-                  const k = billingKeyDraft.trim()
-                  if (!k) return
-                  void navigator.clipboard.writeText(k).then(() => {
-                    setBillingCopyHint('已复制')
-                    window.setTimeout(() => setBillingCopyHint(''), 2000)
-                  })
-                }}
-              >
-                复制 Key
-              </button>
+              <div className="billing-key-input-wrap">
+                <input
+                  className="billing-credential-input billing-key-input"
+                  type={showBillingKeyPlain ? 'text' : 'password'}
+                  autoComplete="off"
+                  value={billingKeyDraft}
+                  onChange={(e) => setBillingKeyDraft(e.target.value)}
+                  onBlur={() => {
+                    saveBillingApiKey(billingKeyDraft)
+                    void refreshBilling()
+                    if (billingKeyDraft.trim()) setGuardMsg('')
+                    setFreeTierBump((v) => v + 1)
+                  }}
+                  disabled={busy}
+                  placeholder="粘贴完整 sk_…（或留空）"
+                  spellCheck={false}
+                />
+                <button
+                  type="button"
+                  className="billing-key-eye"
+                  disabled={busy}
+                  aria-label={showBillingKeyPlain ? '隐藏 Key' : '显示 Key'}
+                  title={showBillingKeyPlain ? '隐藏' : '显示'}
+                  onClick={() => setShowBillingKeyPlain((v) => !v)}
+                >
+                  {showBillingKeyPlain ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                      <line x1="1" y1="1" x2="23" y2="23" />
+                    </svg>
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  )}
+                </button>
+              </div>
               <button
                 type="button"
                 className="chip chip--cta billing-save-collapse-btn"
@@ -722,19 +821,25 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
             </div>
           </label>
         </div>
-        {billingCopyHint ? (
-          <p className="billing-credential-toast" role="status">
-            {billingCopyHint}
-          </p>
-        ) : null}
+        <div className="billing-key-actions">
+          <button
+            type="button"
+            className="billing-clear-key-link"
+            disabled={busy || (!billingKeyDraft.trim() && !loadBillingApiKey())}
+            onClick={() => clearBillingKeyAndUseFree()}
+          >
+            清除 Key，改用免费体验
+          </button>
+        </div>
         {freeRoundsForUi ? (
           <p className="billing-free-rounds" role="status">
             未填 Key 时可免费体验约 <strong>{freeRoundsForUi.rem}</strong> / {freeRoundsForUi.lim} 轮对话（已成功回复计 1 轮）；用完后请向助理索取 Key 填在上方。
           </p>
         ) : null}
         <p className="billing-credential-hint">
-          与右侧「登录」是两套体系：Clerk 用于人设与同步；此处填管理员下发的 <code>sk_</code> Key 用于计费与对话（请求头{' '}
-          <code>X-API-Key</code>）。生产若开启 <code>REQUIRE_API_KEY</code> 则必须填写。保存并收起后可在右上角查看用户名与积分。
+          与右侧「登录」是两套体系：Clerk 用于人设与同步；此处填管理员下发的完整 <code>sk_</code> Key 用于计费（请求头{' '}
+          <code>X-API-Key</code>）。不填或格式不完整时按「免费体验」轮次对话（仅前端计数）。若部署环境开启{' '}
+          <code>REQUIRE_API_KEY</code>，则服务端会要求有效 Key。保存并收起后可在右上角查看用户名与积分。
         </p>
       </section>
       ) : null}
@@ -819,34 +924,45 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
 
       <div className="dock">
         {hasClerk ? (
-          <SignedIn>
-            <div className="persona-bar">
-              <span>云端人设</span>
-              <select
-                className="dock-select"
-                value={selectedPersonaId}
-                onChange={(e) => setSelectedPersonaId(e.target.value)}
-                disabled={busy || personaBusy}
-                aria-label="选择云端人设"
-              >
-                {personas.length === 0 ? (
-                  <option value="">（无人设，请先创建）</option>
-                ) : (
-                  personas.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))
-                )}
-              </select>
-              <button type="button" disabled={busy || personaBusy} onClick={() => void createDefaultPersona()}>
-                新建默认人设
-              </button>
-              <button type="button" disabled={busy || personaBusy} onClick={() => void refreshPersonas()}>
-                刷新
-              </button>
-            </div>
-          </SignedIn>
+          <>
+            <SignedIn>
+              <PersonaDockBar
+                variant="clerk"
+                selectedPersonaId={selectedPersonaId}
+                personas={personas}
+                busy={busy}
+                personaBusy={personaBusy}
+                onSelectId={setSelectedPersonaId}
+                onCreate={() => void createDefaultPersona()}
+                onRefresh={() => void refreshPersonas()}
+              />
+            </SignedIn>
+            <SignedOut>
+              {showPersonaBarByKey ? (
+                <PersonaDockBar
+                  variant="key"
+                  selectedPersonaId={selectedPersonaId}
+                  personas={personas}
+                  busy={busy}
+                  personaBusy={personaBusy}
+                  onSelectId={setSelectedPersonaId}
+                  onCreate={() => void createDefaultPersona()}
+                  onRefresh={() => void refreshPersonas()}
+                />
+              ) : null}
+            </SignedOut>
+          </>
+        ) : showPersonaBarByKey ? (
+          <PersonaDockBar
+            variant="key"
+            selectedPersonaId={selectedPersonaId}
+            personas={personas}
+            busy={busy}
+            personaBusy={personaBusy}
+            onSelectId={setSelectedPersonaId}
+            onCreate={() => void createDefaultPersona()}
+            onRefresh={() => void refreshPersonas()}
+          />
         ) : null}
 
         <div className="dock-tools dock-tools-toggles">

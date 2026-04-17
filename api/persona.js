@@ -1,13 +1,14 @@
 /**
- * 云端人设 CRUD；需 Authorization: Bearer <Clerk session JWT> + DATABASE_URL
+ * 云端人设 CRUD：Authorization: Bearer <Clerk JWT> 或 X-API-Key: sk_…（计费账户即 Key 账号）
+ * user_sub：Clerk sub 或 billing:<account_id>
  */
 const { getPool, ensurePersonaTable } = require('../lib/db.cjs')
-const { verifyClerkBearer } = require('../lib/auth.cjs')
+const { resolvePersonaUserSub } = require('../lib/personaIdentity.cjs')
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key')
 }
 
 function parseBody(req) {
@@ -23,11 +24,15 @@ module.exports = async function handler(req, res) {
     return
   }
 
-  const sub = await verifyClerkBearer(req.headers?.authorization)
-  if (!sub) {
-    res.status(401).json({ error: '需要登录：请在请求头携带 Clerk Bearer Token' })
+  const identity = await resolvePersonaUserSub(req)
+  if (!identity) {
+    res.status(401).json({
+      error:
+        '需要身份：请使用右上角「登录」（Clerk），或在请求头携带有效的 X-API-Key: sk_…（与计费 Key 相同，用于云端人设）',
+    })
     return
   }
+  const sub = identity.userSub
 
   const pool = getPool()
   if (!pool) {

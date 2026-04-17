@@ -13,16 +13,9 @@ const {
   deductPointsForChat,
   estimateTokensFromTurns,
 } = require('../lib/billingCore.cjs')
+const { parseApiKeyFromReq, billingUserSub } = require('../lib/personaIdentity.cjs')
 
 const REQUIRE_API_KEY = process.env.REQUIRE_API_KEY === 'true'
-
-function parseApiKeyFromReq(req) {
-  const x = req.headers['x-api-key']
-  if (typeof x === 'string' && x.startsWith('sk_')) return x.trim()
-  const auth = req.headers.authorization || ''
-  const m = auth.match(/^Bearer\s+(sk_[a-f0-9]+)$/i)
-  return m ? m[1].trim() : null
-}
 
 /** OpenClaw / 方面陈 内容创作知识库（与仓库 api/kb-howie-content.md 同步；vercel.json includeFiles 需包含该文件） */
 let HOWIE_KB_MD = ''
@@ -577,8 +570,10 @@ module.exports = async function handler(req, res) {
     } = parseOptions(body)
     const searchOpts = parseSearchOptions(body)
 
-    const authSub = await verifyClerkBearer(req.headers?.authorization)
-    const structuredPersona = await loadPersonaSection(personaId, authSub)
+    const authSubClerk = await verifyClerkBearer(req.headers?.authorization)
+    const personaAuthSub =
+      authSubClerk || (billingAccount ? billingUserSub(billingAccount.id) : null)
+    const structuredPersona = await loadPersonaSection(personaId, personaAuthSub)
 
     const systemContent = buildSystemPrompt({
       personal: parsePersonalContext(body),

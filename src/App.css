@@ -160,16 +160,50 @@
   align-items: stretch;
 }
 
+.billing-key-input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: min(100%, 200px);
+  display: flex;
+  align-items: stretch;
+}
+
+.billing-key-input-wrap .billing-credential-input {
+  width: 100%;
+  padding-right: 44px;
+}
+
+.billing-key-eye {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.billing-key-eye:hover:not(:disabled) {
+  color: var(--text);
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.billing-key-eye:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .billing-key-row .billing-credential-input {
   flex: 1;
   min-width: 0;
-}
-
-.billing-copy-btn {
-  flex-shrink: 0;
-  white-space: nowrap;
-  font-size: 0.75rem !important;
-  padding: 8px 12px !important;
 }
 
 .billing-save-collapse-btn {
@@ -177,6 +211,30 @@
   white-space: nowrap;
   font-size: 0.75rem !important;
   padding: 8px 12px !important;
+}
+
+.billing-key-actions {
+  margin-top: 8px;
+}
+
+.billing-clear-key-link {
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.billing-clear-key-link:hover:not(:disabled) {
+  color: #a5b4fc;
+}
+
+.billing-clear-key-link:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  text-decoration: none;
 }
 
 .billing-credential-toast {
@@ -761,6 +819,18 @@
   margin-bottom: 12px;
   font-size: 0.8125rem;
   color: var(--text-muted);
+}
+
+.persona-bar-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #a5b4fc;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.2);
+  border: 1px solid rgba(139, 92, 246, 0.35);
 }
 
 .persona-bar select {
