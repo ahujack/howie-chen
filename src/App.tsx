@@ -33,9 +33,12 @@ import {
   saveBillingUsername,
 } from './billingStorage'
 import { normalizeBillingApiKey } from './billingKeyUtils'
+
+const BILLING_BAR_COLLAPSED_KEY = 'howie_billing_bar_collapsed_v1'
 import { getFreeChatLimit, getFreeRoundsUsed, incrementFreeRoundsUsed } from './freeChatLimit'
 import { DiagnosticFirstRoundForm, DiagnosticStepper } from './DiagnosticUI'
 import { ChatWaitPanel, PinnedRetrievalCard, type PinnedRetrieval } from './StreamProgress'
+import { userFacingChatError } from './chatUserError'
 import { consumeChatSse, mergeMetaToWaitState, type WaitPanelState } from './streamChat'
 import './App.css'
 
@@ -157,6 +160,17 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   const [billingCopyHint, setBillingCopyHint] = useState('')
   const [guardMsg, setGuardMsg] = useState('')
   const [freeTierBump, setFreeTierBump] = useState(0)
+  const [billingBarCollapsed, setBillingBarCollapsed] = useState(() => {
+    try {
+      const key = normalizeBillingApiKey(loadBillingApiKey())
+      if (!key) return false
+      const f = localStorage.getItem(BILLING_BAR_COLLAPSED_KEY)
+      if (f === '0') return false
+      return true
+    } catch {
+      return false
+    }
+  })
   const [pointsBalance, setPointsBalance] = useState<number | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const messagesRef = useRef(messages)
@@ -169,6 +183,42 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   useEffect(() => {
     waitPanelRef.current = waitPanel
   }, [waitPanel])
+
+  useEffect(() => {
+    const key = normalizeBillingApiKey(loadBillingApiKey())
+    if (!key) {
+      setBillingBarCollapsed(false)
+      try {
+        localStorage.removeItem(BILLING_BAR_COLLAPSED_KEY)
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [freeTierBump, billingKeyDraft])
+
+  const persistBillingCollapsed = (collapsed: boolean) => {
+    try {
+      localStorage.setItem(BILLING_BAR_COLLAPSED_KEY, collapsed ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+    setBillingBarCollapsed(collapsed)
+  }
+
+  const saveBillingAndCollapse = () => {
+    const k = normalizeBillingApiKey(billingKeyDraft)
+    if (!k) {
+      setGuardMsg('请填写以 sk_ 开头的有效 API Key 后再保存。')
+      return
+    }
+    saveBillingApiKey(billingKeyDraft)
+    saveBillingUsername(billingUsernameDraft)
+    setBillingKeyDraft(k)
+    void refreshBilling()
+    setGuardMsg('')
+    setFreeTierBump((v) => v + 1)
+    persistBillingCollapsed(true)
+  }
 
   const refreshPersonas = useCallback(async () => {
     const t = await getToken()
@@ -448,23 +498,16 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
       }
 
       if (!assistantId) {
-        pushAssistant(
-          uid(),
-          [
-            '未能从 AI 服务取得回复，请按下面排查：',
-            '',
-            `• 错误信息：${result.error}`,
-            '• Vercel → 项目 → Settings → Environment Variables：确认已添加 **DEEPSEEK_API_KEY**，并勾选 **Production**（改完后在 Deployments 里 **Redeploy** 一次）。',
-            '• 不要在生产环境变量里设置 **VITE_USE_LOCAL_CHAT**（该变量只应在本地 .env.local 用于纯前端调试）。',
-            '• 若仍失败，打开浏览器开发者工具 → Network，查看 **/api/chat** 请求的状态码与响应体。',
-          ].join('\n'),
-        )
+        console.warn('[chat] 请求失败（详情供排查）:', result.error)
+        pushAssistant(uid(), userFacingChatError(result.error))
         return
       }
 
+      console.warn('[chat] 流式错误（详情供排查）:', result.error)
+      const friendlyErr = userFacingChatError(result.error)
       setMessages((prev) => {
         const n = prev.map((m) =>
-          m.id === assistantId ? { ...m, content: `${m.content}\n\n[错误：${result.error}]` } : m,
+          m.id === assistantId ? { ...m, content: `${m.content}\n\n[错误] ${friendlyErr}` } : m,
         )
         messagesRef.current = n
         return n
@@ -499,6 +542,26 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
     const used = getFreeRoundsUsed()
     return { lim, used, rem: Math.max(0, lim - used) }
   }, [freeTierBump, billingKeyDraft])
+
+  const hasSavedBillingKey = useMemo(
+    () => normalizeBillingApiKey(loadBillingApiKey()).length > 0,
+    [freeTierBump, billingKeyDraft],
+  )
+
+  const showBillingPanel = !billingBarCollapsed || !hasSavedBillingKey
+
+  const billingCompactTitle = useMemo(() => {
+    const nick =
+      billingUsernameDraft.trim() || loadBillingUsername().trim() || '计费账户'
+    const keyOk = Boolean(normalizeBillingApiKey(billingKeyDraft || loadBillingApiKey()))
+    const pts =
+      pointsBalance != null
+        ? `积分 ${pointsBalance.toLocaleString('zh-CN')}`
+        : keyOk
+          ? '积分 —'
+          : '未配置 Key'
+    return { nick, ptsLine: pts }
+  }, [billingUsernameDraft, billingKeyDraft, freeTierBump, pointsBalance])
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -549,34 +612,47 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
           </h1>
           <p className="header-tagline">智能助手 · 工具调用 · 技能系统</p>
           <div className="header-billing-row">
-            {pointsBalance != null ? (
-              <span className="header-points" title="当前积分余额（与 API Key 绑定）">
-                积分 {pointsBalance.toLocaleString('zh-CN')}
-              </span>
-            ) : (
-              <span className="header-points is-muted">未配置 API Key 时不显示积分</span>
-            )}
             <a className="header-admin-link" href="/admin" target="_blank" rel="noreferrer">
               管理后台
             </a>
           </div>
         </div>
-        {hasClerk ? (
-          <div className="header-auth">
-            <SignedOut>
-              <SignInButton mode="modal">
-                <button type="button" className="chip chip--cta">
-                  登录
-                </button>
-              </SignInButton>
-            </SignedOut>
-            <SignedIn>
-              <UserButton />
-            </SignedIn>
-          </div>
-        ) : null}
+        <div className="header-trailing">
+          {hasSavedBillingKey ? (
+            <button
+              type="button"
+              className={`billing-compact-chip${billingBarCollapsed ? '' : ' billing-compact-chip--open'}`}
+              title={billingBarCollapsed ? '展开编辑计费 Key' : '保存并收起'}
+              onClick={() => {
+                if (billingBarCollapsed) {
+                  persistBillingCollapsed(false)
+                } else {
+                  saveBillingAndCollapse()
+                }
+              }}
+            >
+              <span className="billing-compact-nick">{billingCompactTitle.nick}</span>
+              <span className="billing-compact-pts">{billingCompactTitle.ptsLine}</span>
+            </button>
+          ) : null}
+          {hasClerk ? (
+            <div className="header-auth">
+              <SignedOut>
+                <SignInButton mode="modal">
+                  <button type="button" className="chip chip--cta">
+                    登录
+                  </button>
+                </SignInButton>
+              </SignedOut>
+              <SignedIn>
+                <UserButton />
+              </SignedIn>
+            </div>
+          ) : null}
+        </div>
       </header>
 
+      {showBillingPanel ? (
       <section className="billing-credential-bar" aria-label="计费账户与 API Key">
         <div className="billing-credential-head">
           <span className="billing-credential-badge">计费登录</span>
@@ -635,6 +711,14 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
               >
                 复制 Key
               </button>
+              <button
+                type="button"
+                className="chip chip--cta billing-save-collapse-btn"
+                disabled={busy}
+                onClick={() => saveBillingAndCollapse()}
+              >
+                保存并收起
+              </button>
             </div>
           </label>
         </div>
@@ -649,10 +733,11 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
           </p>
         ) : null}
         <p className="billing-credential-hint">
-          与右上角「登录」是两套体系：Clerk 用于人设与同步；此处填管理员下发的 <code>sk_</code> Key 用于计费与对话（请求头{' '}
-          <code>X-API-Key</code>）。生产若开启 <code>REQUIRE_API_KEY</code> 则必须填写。
+          与右侧「登录」是两套体系：Clerk 用于人设与同步；此处填管理员下发的 <code>sk_</code> Key 用于计费与对话（请求头{' '}
+          <code>X-API-Key</code>）。生产若开启 <code>REQUIRE_API_KEY</code> 则必须填写。保存并收起后可在右上角查看用户名与积分。
         </p>
       </section>
+      ) : null}
 
       {diagMode ? <DiagnosticStepper step={diagStep} /> : null}
 

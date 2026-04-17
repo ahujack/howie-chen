@@ -155,6 +155,7 @@
 
 .billing-key-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: stretch;
 }
@@ -165,6 +166,13 @@
 }
 
 .billing-copy-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 0.75rem !important;
+  padding: 8px 12px !important;
+}
+
+.billing-save-collapse-btn {
   flex-shrink: 0;
   white-space: nowrap;
   font-size: 0.75rem !important;
@@ -689,8 +697,57 @@
   border-color: rgba(139, 92, 246, 0.45);
 }
 
-.header-auth {
+.header-trailing {
   margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.billing-compact-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  max-width: min(220px, 42vw);
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-raised);
+  color: var(--text);
+  cursor: pointer;
+  text-align: right;
+  line-height: 1.25;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.billing-compact-chip:hover {
+  border-color: rgba(139, 92, 246, 0.45);
+  background: rgba(22, 27, 38, 0.95);
+}
+
+.billing-compact-chip--open {
+  border-color: rgba(6, 182, 212, 0.35);
+}
+
+.billing-compact-nick {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.billing-compact-pts {
+  font-size: 0.72rem;
+  color: #a5f3fc;
+}
+
+.header-auth {
   display: flex;
   align-items: center;
   gap: 8px;
