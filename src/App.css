@@ -1253,19 +1253,30 @@
   color: var(--text-muted);
 }
 
-.admin-layout {
+/* 上下布局：上方新建用户（适中宽度），下方全部用户全宽 */
+.admin-layout.admin-layout--stacked {
   display: grid;
-  grid-template-columns: minmax(300px, 400px) minmax(0, 1fr);
-  gap: 20px;
+  grid-template-columns: 1fr;
+  gap: 24px;
   align-items: start;
-  max-width: 1280px;
+  max-width: 1400px;
   margin: 0 auto;
+  width: 100%;
 }
 
-@media (max-width: 960px) {
-  .admin-layout {
-    grid-template-columns: 1fr;
-  }
+.admin-layout--stacked .admin-panel-col--form {
+  max-width: 28rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.admin-layout--stacked .admin-panel-col--table {
+  width: 100%;
+  min-width: 0;
+}
+
+.admin-layout--stacked .admin-card--flush {
+  height: auto;
 }
 
 .admin-panel-col--table {
@@ -1382,22 +1393,66 @@
 }
 
 .admin-key-cell {
-  max-width: 280px;
-  vertical-align: top;
+  min-width: 14rem;
+  max-width: none;
+  vertical-align: middle;
 }
 
 .admin-key-wrap {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
 }
 
 .admin-key-text {
   flex: 1;
-  min-width: 0;
-  font-size: 0.72rem;
+  min-width: 12rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-col-key .admin-key-text {
+  max-width: min(52vw, 36rem);
+}
+
+.admin-key-text--revealed {
+  white-space: normal !important;
   word-break: break-all;
-  line-height: 1.35;
+  overflow: visible !important;
+  text-overflow: unset !important;
+  max-width: min(92vw, 42rem) !important;
+}
+
+.admin-col-id {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.admin-col-user {
+  white-space: nowrap;
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-col-points {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-col-note {
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-col-time {
+  white-space: nowrap;
 }
 
 .admin-key-warn {
@@ -1409,14 +1464,17 @@
 
 .admin-row-topup {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 88px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .admin-topup-input {
-  width: 100%;
-  max-width: 100px;
+  width: 6.5rem;
+  min-width: 0;
+  max-width: none;
   padding: 6px 8px;
   border-radius: 8px;
   border: 1px solid var(--border-subtle);
@@ -1466,24 +1524,35 @@
 .admin-table-wrap {
   overflow-x: auto;
   margin-top: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  background: rgba(15, 23, 42, 0.35);
+  -webkit-overflow-scrolling: touch;
 }
 
 .admin-table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
   font-size: 0.8125rem;
+  table-layout: auto;
 }
 
 .admin-table th,
 .admin-table td {
-  padding: 8px 10px;
+  padding: 10px 12px;
   text-align: left;
   border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
 }
 
 .admin-table th {
   color: var(--text-muted);
   font-weight: 600;
+}
+
+.admin-th-points {
+  text-align: right;
 }
 
 .admin-mono {

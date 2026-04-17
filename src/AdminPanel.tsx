@@ -340,7 +340,7 @@ export default function AdminPanel() {
       </header>
 
       <div className="main-area admin-main">
-        <div className="admin-layout">
+        <div className="admin-layout admin-layout--stacked">
           <section className="admin-panel-col admin-panel-col--form">
             <div className="admin-card admin-card--flush">
               <h3 className="admin-h3">新建用户</h3>
@@ -411,7 +411,7 @@ export default function AdminPanel() {
                       <th>用户 ID</th>
                       <th>用户名</th>
                       <th>API Key</th>
-                      <th>积分</th>
+                      <th className="admin-th-points">积分</th>
                       <th>续费</th>
                       <th>备注</th>
                       <th>创建时间</th>
@@ -427,7 +427,7 @@ export default function AdminPanel() {
                         full && vis ? full : full && !vis ? maskKey(full) : `${a.api_key_prefix}…`
                       return (
                         <tr key={a.id}>
-                          <td className="admin-mono admin-id" title={a.id}>
+                          <td className="admin-mono admin-id admin-col-id" title={a.id}>
                             <button
                               type="button"
                               className="admin-id-btn"
@@ -436,10 +436,13 @@ export default function AdminPanel() {
                               {a.id.slice(0, 8)}… 复制
                             </button>
                           </td>
-                          <td>{a.username}</td>
-                          <td className="admin-key-cell">
+                          <td className="admin-col-user">{a.username}</td>
+                          <td className="admin-key-cell admin-col-key">
                             <div className="admin-key-wrap">
-                              <code className="admin-key-text" title={full && vis ? full : undefined}>
+                              <code
+                                className={`admin-key-text${full && vis ? ' admin-key-text--revealed' : ''}`}
+                                title={full && vis ? full : undefined}
+                              >
                                 {loading ? '…' : display}
                               </code>
                               <EyeButton
@@ -450,8 +453,8 @@ export default function AdminPanel() {
                             </div>
                             {!hasBackup ? <span className="admin-key-warn">无备份</span> : null}
                           </td>
-                          <td>{a.points_balance}</td>
-                          <td>
+                          <td className="admin-col-points">{a.points_balance}</td>
+                          <td className="admin-col-topup">
                             <div className="admin-row-topup">
                               <input
                                 type="number"
@@ -475,8 +478,8 @@ export default function AdminPanel() {
                               </button>
                             </div>
                           </td>
-                          <td>{a.note || '—'}</td>
-                          <td className="admin-mono admin-time">{new Date(a.created_at).toLocaleString()}</td>
+                          <td className="admin-col-note">{a.note || '—'}</td>
+                          <td className="admin-mono admin-time admin-col-time">{new Date(a.created_at).toLocaleString()}</td>
                         </tr>
                       )
                     })}
