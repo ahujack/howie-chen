@@ -8,6 +8,21 @@ const path = require('path')
 const HOT_ROOTS = require('./hotRoots.js')
 const { getPool, ensurePersonaTable } = require('./db.js')
 const { verifyClerkBearer } = require('./auth.js')
+const {
+  findAccountByApiKey,
+  deductPointsForChat,
+  estimateTokensFromTurns,
+} = require('./billingCore.js')
+
+const REQUIRE_API_KEY = process.env.REQUIRE_API_KEY === 'true'
+
+function parseApiKeyFromReq(req) {
+  const x = req.headers['x-api-key']
+  if (typeof x === 'string' && x.startsWith('sk_')) return x.trim()
+  const auth = req.headers.authorization || ''
+  const m = auth.match(/^Bearer\s+(sk_[a-f0-9]+)$/i)
+  return m ? m[1].trim() : null
+}
 
 /** OpenClaw / 方面陈 内容创作知识库（与仓库 api/kb-howie-content.md 同步；vercel.json includeFiles 需包含该文件） */
 let HOWIE_KB_MD = ''
@@ -72,23 +87,25 @@ const SYSTEM_PROMPT = `你是「AI Agent」智能助手，面向中文用户。�
 function corsJson(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key')
 }
 
 /** 流式响应同样需 CORS，否则浏览器读不到 event-stream */
 function corsSse(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key')
 }
 
 /**
  * 读取 DeepSeek（OpenAI 兼容）的 SSE，转发为前端约定的 data: {"t":"片段"}
+ * @returns {Promise<{ usage: { prompt_tokens?: number, completion_tokens?: number, total_tokens?: number } | null }>}
  */
 async function pipeDeepSeekSseToClient(dsResponse, res) {
+  const out = { usage: null }
   if (!dsResponse.body) {
     res.write(`data: ${JSON.stringify({ error: '模型未返回流式正文' })}\n\n`)
-    return
+    return out
   }
   const reader = dsResponse.body.getReader()
   const dec = new TextDecoder()
@@ -120,7 +137,10 @@ async function pipeDeepSeekSseToClient(dsResponse, res) {
               : null
         if (errMsg) {
           res.write(`data: ${JSON.stringify({ error: errMsg })}\n\n`)
-          return
+          return out
+        }
+        if (j.usage && typeof j.usage === 'object') {
+          out.usage = j.usage
         }
         const piece = j.choices?.[0]?.delta?.content
         if (typeof piece === 'string' && piece.length > 0) {
@@ -135,7 +155,7 @@ async function pipeDeepSeekSseToClient(dsResponse, res) {
       /* ignore */
     }
   }
-  res.write(`data: ${JSON.stringify({ done: true })}\n\n`)
+  return out
 }
 
 function parseMessages(body) {
@@ -514,6 +534,36 @@ module.exports = async function handler(req, res) {
       return
     }
 
+    const apiKeyRaw = parseApiKeyFromReq(req)
+    let billingAccount = null
+    if (apiKeyRaw) {
+      billingAccount = await findAccountByApiKey(apiKeyRaw)
+      if (!billingAccount) {
+        corsJson(res)
+        res.status(401).json({ error: '无效的 X-API-Key' })
+        return
+      }
+    }
+    if (REQUIRE_API_KEY) {
+      if (!billingAccount) {
+        corsJson(res)
+        res.status(401).json({
+          error:
+            '需要有效的 X-API-Key。请在请求头添加 X-API-Key: sk_…（或 Authorization: Bearer sk_…）。',
+        })
+        return
+      }
+      if ((billingAccount.points_balance ?? 0) < 1) {
+        corsJson(res)
+        res.status(402).json({ error: '积分不足，请续费或联系管理员充值' })
+        return
+      }
+    } else if (billingAccount && (billingAccount.points_balance ?? 0) < 1) {
+      corsJson(res)
+      res.status(402).json({ error: '积分不足' })
+      return
+    }
+
     const {
       webSearch,
       howieKnowledgeBase,
@@ -596,8 +646,29 @@ module.exports = async function handler(req, res) {
         return
       }
 
+      let billingOut
+      if (billingAccount) {
+        const u = json.usage
+        let pt = u?.prompt_tokens
+        let ct = u?.completion_tokens
+        if ((pt == null || ct == null) && u?.total_tokens) {
+          const tot = u.total_tokens
+          pt = Math.round(tot * 0.45)
+          ct = tot - pt
+        }
+        if (pt == null && ct == null) {
+          const est = estimateTokensFromTurns(turns)
+          pt = Math.round(est * 0.45)
+          ct = est - pt
+        }
+        const { balanceAfter, deducted } = await deductPointsForChat(billingAccount.id, pt, ct, {
+          stream: false,
+        })
+        billingOut = { pointsBalance: balanceAfter, pointsDeducted: deducted }
+      }
+
       corsJson(res)
-      res.status(200).json({ reply })
+      res.status(200).json(billingOut ? { reply, billing: billingOut } : { reply })
       return
     }
 
@@ -677,7 +748,33 @@ module.exports = async function handler(req, res) {
         return
       }
 
-      await pipeDeepSeekSseToClient(ds, res)
+      const { usage } = await pipeDeepSeekSseToClient(ds, res)
+
+      if (billingAccount) {
+        let pt = usage?.prompt_tokens
+        let ct = usage?.completion_tokens
+        if ((pt == null || ct == null) && usage?.total_tokens) {
+          const tot = usage.total_tokens
+          pt = Math.round(tot * 0.45)
+          ct = tot - pt
+        }
+        if (pt == null && ct == null) {
+          const est = estimateTokensFromTurns(turns)
+          pt = Math.round(est * 0.45)
+          ct = est - pt
+        }
+        try {
+          const { balanceAfter, deducted } = await deductPointsForChat(billingAccount.id, pt, ct, {
+            stream: true,
+          })
+          writeSse({ billing: { pointsBalance: balanceAfter, pointsDeducted: deducted } })
+        } catch (be) {
+          console.error('[chat] billing deduct', be)
+          writeSse({ billingError: be instanceof Error ? be.message : '扣减积分失败' })
+        }
+      }
+
+      writeSse({ done: true })
       res.end()
     } catch (e) {
       console.error('api/chat stream', e)

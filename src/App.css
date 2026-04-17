@@ -1176,3 +1176,124 @@
     font-size: 0.78rem;
   }
 }
+
+/* 计费 · 积分与管理入口 */
+.header-billing-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 10px;
+}
+
+.header-points {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #a5f3fc;
+}
+
+.header-points.is-muted {
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.header-admin-link {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #c4b5fd;
+  text-decoration: none;
+}
+
+.header-admin-link:hover {
+  text-decoration: underline;
+}
+
+.billing-key-input {
+  min-height: 44px !important;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem !important;
+}
+
+/* 管理后台 */
+.admin-wrap .admin-card {
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 20px 22px;
+  border-radius: 16px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-raised);
+}
+
+.admin-h3 {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.admin-err {
+  color: #fca5a5;
+  font-size: 0.875rem;
+  margin: 8px 0;
+}
+
+.admin-created {
+  margin: 12px 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(74, 222, 128, 0.08);
+  border: 1px solid rgba(74, 222, 128, 0.25);
+  font-size: 0.8125rem;
+  word-break: break-all;
+}
+
+.admin-created code {
+  display: block;
+  margin-top: 8px;
+  font-size: 0.78rem;
+}
+
+.admin-table-wrap {
+  overflow-x: auto;
+  margin-top: 10px;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.admin-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.admin-mono {
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+}
+
+.admin-id-btn {
+  border: none;
+  background: rgba(139, 92, 246, 0.15);
+  color: #c4b5fd;
+  padding: 4px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+
+.admin-id-btn:hover {
+  background: rgba(139, 92, 246, 0.28);
+}
+
+.admin-link {
+  color: var(--cyan);
+}

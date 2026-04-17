@@ -1,4 +1,8 @@
-type StreamResult = { ok: true } | { ok: false; error: string }
+export type BillingStreamInfo = { pointsBalance: number; pointsDeducted: number }
+
+type StreamResult =
+  | { ok: true; billing?: BillingStreamInfo }
+  | { ok: false; error: string }
 
 export type ChatStreamMeta =
   | { phase: 'searching'; query: string; intent?: string }
@@ -120,6 +124,7 @@ export async function consumeChatSse(
   const reader = res.body.getReader()
   const dec = new TextDecoder()
   let carry = ''
+  let lastBilling: BillingStreamInfo | undefined
 
   while (true) {
     const { done, value } = await reader.read()
@@ -141,9 +146,11 @@ export async function consumeChatSse(
             meta?: ChatStreamMeta
             done?: boolean
             error?: string
+            billing?: BillingStreamInfo
           }
           if (json.error) return { ok: false, error: json.error }
           if (json.meta && onMeta) onMeta(json.meta)
+          if (json.billing) lastBilling = json.billing
           if (json.done) continue
           if (json.t) onDelta(json.t)
         } catch {
@@ -154,5 +161,5 @@ export async function consumeChatSse(
     }
   }
 
-  return { ok: true }
+  return { ok: true, billing: lastBilling }
 }

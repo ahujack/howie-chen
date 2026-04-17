@@ -26,6 +26,7 @@ import {
   saveInjectHotRoots,
   savePersonalContext,
 } from './personalStorage'
+import { loadBillingApiKey, saveBillingApiKey } from './billingStorage'
 import { DiagnosticFirstRoundForm, DiagnosticStepper } from './DiagnosticUI'
 import { ChatWaitPanel, PinnedRetrievalCard, type PinnedRetrieval } from './StreamProgress'
 import { consumeChatSse, mergeMetaToWaitState, type WaitPanelState } from './streamChat'
@@ -144,6 +145,8 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   const [hotTrendsLoading, setHotTrendsLoading] = useState(false)
   const [waitPanel, setWaitPanel] = useState<WaitPanelState | null>(null)
   const [pinnedRetrieval, setPinnedRetrieval] = useState<PinnedRetrieval | null>(null)
+  const [billingKeyDraft, setBillingKeyDraft] = useState(loadBillingApiKey)
+  const [pointsBalance, setPointsBalance] = useState<number | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const messagesRef = useRef(messages)
   const waitPanelRef = useRef<WaitPanelState | null>(null)
@@ -181,6 +184,29 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   useEffect(() => {
     void refreshPersonas()
   }, [refreshPersonas])
+
+  const refreshBilling = useCallback(async () => {
+    const k = loadBillingApiKey().trim()
+    if (!k) {
+      setPointsBalance(null)
+      return
+    }
+    try {
+      const r = await fetch('/api/billing-me', { headers: { 'X-API-Key': k } })
+      if (!r.ok) {
+        setPointsBalance(null)
+        return
+      }
+      const j = (await r.json()) as { pointsBalance?: number }
+      if (typeof j.pointsBalance === 'number') setPointsBalance(j.pointsBalance)
+    } catch {
+      setPointsBalance(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshBilling()
+  }, [refreshBilling])
 
   const hasUserMessage = messages.some((m) => m.role === 'user')
 
@@ -343,6 +369,8 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
       const token = await getToken()
       const extraHeaders: Record<string, string> = {}
       if (token) extraHeaders.Authorization = `Bearer ${token}`
+      const billingKey = loadBillingApiKey().trim()
+      if (billingKey) extraHeaders['X-API-Key'] = billingKey
 
       const result = await consumeChatSse(
         '/api/chat',
@@ -379,6 +407,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
       endBusy()
 
       if (result.ok) {
+        if (result.billing) setPointsBalance(result.billing.pointsBalance)
         if (!assistantId) pushAssistant(uid(), '（无内容）')
         return
       }
@@ -469,6 +498,18 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
             <span className="header-title-gradient">AI Agent</span>
           </h1>
           <p className="header-tagline">智能助手 · 工具调用 · 技能系统</p>
+          <div className="header-billing-row">
+            {pointsBalance != null ? (
+              <span className="header-points" title="当前积分余额（与 API Key 绑定）">
+                积分 {pointsBalance.toLocaleString('zh-CN')}
+              </span>
+            ) : (
+              <span className="header-points is-muted">未配置 API Key 时不显示积分</span>
+            )}
+            <a className="header-admin-link" href="/admin" target="_blank" rel="noreferrer">
+              管理后台
+            </a>
+          </div>
         </div>
         {hasClerk ? (
           <div className="header-auth">
@@ -720,6 +761,30 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
               ))}
             </select>
           </label>
+        </div>
+
+        <div className="dock-personal-wrap">
+          <details className="dock-personal dock-personal-block">
+            <summary>API Key（计费与积分）</summary>
+            <p className="dock-personal-hint">
+              管理员在后台为你生成的 <code>sk_</code> Key；保存在本机，每次对话会通过{' '}
+              <code>X-API-Key</code> 发送。生产环境若开启 <code>REQUIRE_API_KEY</code>，则必须填写才能聊天。
+            </p>
+            <input
+              className="personal-textarea billing-key-input"
+              type="password"
+              autoComplete="off"
+              value={billingKeyDraft}
+              onChange={(e) => setBillingKeyDraft(e.target.value)}
+              onBlur={() => {
+                saveBillingApiKey(billingKeyDraft)
+                void refreshBilling()
+              }}
+              disabled={busy}
+              placeholder="sk_…（失焦保存）"
+              spellCheck={false}
+            />
+          </details>
         </div>
 
         <div className="dock-personal-wrap">
