@@ -128,6 +128,7 @@ export default function AdminPanel() {
   const [keyVisible, setKeyVisible] = useState<Record<string, boolean>>({})
   const [keyLoading, setKeyLoading] = useState<Record<string, boolean>>({})
   const [topupDraft, setTopupDraft] = useState<Record<string, number>>({})
+  const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null)
 
   const authHeaders = useCallback((): Record<string, string> => {
     const t = token.trim()
@@ -261,6 +262,24 @@ export default function AdminPanel() {
       else setKeyVisible((m) => ({ ...m, [id]: true }))
     } else {
       setKeyVisible((m) => ({ ...m, [id]: false }))
+    }
+  }
+
+  const copyRowKey = async (a: AccountRow) => {
+    const full = keyCache[a.id]
+    const vis = keyVisible[a.id]
+    const display =
+      full && vis ? full : full && !vis ? maskKey(full) : `${a.api_key_prefix}…`
+    const text = full ?? display
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopiedKeyId(a.id)
+      window.setTimeout(() => {
+        setCopiedKeyId((id) => (id === a.id ? null : id))
+      }, 2000)
+      setErr('')
+    } catch {
+      setErr('复制失败')
     }
   }
 
@@ -402,13 +421,14 @@ export default function AdminPanel() {
             <div className="admin-card admin-card--flush">
               <h3 className="admin-h3">全部用户</h3>
               <p className="dock-personal-hint admin-table-hint">
-                在表格中复制用户 ID、查看完整 Key、续费充值。完整 Key 依赖库内加密备份；旧账户可能仅有前缀。
+                <strong>用户 ID</strong> 仅用于在本页「续费」时指定账户；发给客户端用户时，对方只需保存{' '}
+                <strong>API Key</strong> 在对话页使用，不必填 ID。完整 Key 依赖库内加密备份；旧账户可能仅有前缀。
               </p>
               <div className="admin-table-wrap">
                 <table className="admin-table">
                   <thead>
                     <tr>
-                      <th>用户 ID</th>
+                      <th title="管理端充值、对账时粘贴；客户端聊天不需要">用户 ID（续费用）</th>
                       <th>用户名</th>
                       <th>API Key</th>
                       <th className="admin-th-points">积分</th>
@@ -431,9 +451,10 @@ export default function AdminPanel() {
                             <button
                               type="button"
                               className="admin-id-btn"
+                              title="复制完整 UUID，用于本页续费充值"
                               onClick={() => void navigator.clipboard.writeText(a.id)}
                             >
-                              {a.id.slice(0, 8)}… 复制
+                              {a.id.slice(0, 8)}… 复制 ID
                             </button>
                           </td>
                           <td className="admin-col-user">{a.username}</td>
@@ -450,6 +471,15 @@ export default function AdminPanel() {
                                 disabled={loading || !hasBackup}
                                 onClick={() => void toggleRowKeyVisible(a)}
                               />
+                              <button
+                                type="button"
+                                className="admin-key-copy-btn"
+                                title={full ? '复制完整 Key' : '复制当前显示（可先点眼睛查看完整 Key）'}
+                                disabled={loading}
+                                onClick={() => void copyRowKey(a)}
+                              >
+                                {copiedKeyId === a.id ? '已复制' : '复制 Key'}
+                              </button>
                             </div>
                             {!hasBackup ? <span className="admin-key-warn">无备份</span> : null}
                           </td>

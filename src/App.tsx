@@ -26,7 +26,12 @@ import {
   saveInjectHotRoots,
   savePersonalContext,
 } from './personalStorage'
-import { loadBillingApiKey, saveBillingApiKey } from './billingStorage'
+import {
+  loadBillingApiKey,
+  loadBillingUsername,
+  saveBillingApiKey,
+  saveBillingUsername,
+} from './billingStorage'
 import { DiagnosticFirstRoundForm, DiagnosticStepper } from './DiagnosticUI'
 import { ChatWaitPanel, PinnedRetrievalCard, type PinnedRetrieval } from './StreamProgress'
 import { consumeChatSse, mergeMetaToWaitState, type WaitPanelState } from './streamChat'
@@ -146,6 +151,8 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   const [waitPanel, setWaitPanel] = useState<WaitPanelState | null>(null)
   const [pinnedRetrieval, setPinnedRetrieval] = useState<PinnedRetrieval | null>(null)
   const [billingKeyDraft, setBillingKeyDraft] = useState(loadBillingApiKey)
+  const [billingUsernameDraft, setBillingUsernameDraft] = useState(loadBillingUsername)
+  const [billingCopyHint, setBillingCopyHint] = useState('')
   const [pointsBalance, setPointsBalance] = useState<number | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const messagesRef = useRef(messages)
@@ -527,6 +534,76 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
         ) : null}
       </header>
 
+      <section className="billing-credential-bar" aria-label="计费账户与 API Key">
+        <div className="billing-credential-head">
+          <span className="billing-credential-badge">计费登录</span>
+          {billingUsernameDraft.trim() ? (
+            <span className="billing-credential-nick" title="本地备注，仅自己可见">
+              {billingUsernameDraft.trim()}
+            </span>
+          ) : null}
+        </div>
+        <div className="billing-credential-fields">
+          <label className="billing-credential-field">
+            <span className="billing-credential-label">用户名（可选）</span>
+            <input
+              className="billing-credential-input"
+              type="text"
+              autoComplete="off"
+              value={billingUsernameDraft}
+              onChange={(e) => setBillingUsernameDraft(e.target.value)}
+              onBlur={() => saveBillingUsername(billingUsernameDraft)}
+              disabled={busy}
+              placeholder="与后台账户备注一致即可，仅本地显示"
+              spellCheck={false}
+            />
+          </label>
+          <label className="billing-credential-field billing-credential-field--key">
+            <span className="billing-credential-label">API Key</span>
+            <div className="billing-key-row">
+              <input
+                className="billing-credential-input billing-key-input"
+                type="password"
+                autoComplete="off"
+                value={billingKeyDraft}
+                onChange={(e) => setBillingKeyDraft(e.target.value)}
+                onBlur={() => {
+                  saveBillingApiKey(billingKeyDraft)
+                  void refreshBilling()
+                }}
+                disabled={busy}
+                placeholder="sk_…（管理员下发，失焦保存）"
+                spellCheck={false}
+              />
+              <button
+                type="button"
+                className="chip billing-copy-btn"
+                disabled={busy || !billingKeyDraft.trim()}
+                onClick={() => {
+                  const k = billingKeyDraft.trim()
+                  if (!k) return
+                  void navigator.clipboard.writeText(k).then(() => {
+                    setBillingCopyHint('已复制')
+                    window.setTimeout(() => setBillingCopyHint(''), 2000)
+                  })
+                }}
+              >
+                复制 Key
+              </button>
+            </div>
+          </label>
+        </div>
+        {billingCopyHint ? (
+          <p className="billing-credential-toast" role="status">
+            {billingCopyHint}
+          </p>
+        ) : null}
+        <p className="billing-credential-hint">
+          与右上角「登录」是两套体系：Clerk 用于人设与同步；此处填管理员下发的 <code>sk_</code> Key 用于计费与对话（请求头{' '}
+          <code>X-API-Key</code>）。生产若开启 <code>REQUIRE_API_KEY</code> 则必须填写。
+        </p>
+      </section>
+
       {diagMode ? <DiagnosticStepper step={diagStep} /> : null}
 
       <div className="main-area">
@@ -761,30 +838,6 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
               ))}
             </select>
           </label>
-        </div>
-
-        <div className="dock-personal-wrap">
-          <details className="dock-personal dock-personal-block">
-            <summary>API Key（计费与积分）</summary>
-            <p className="dock-personal-hint">
-              管理员在后台为你生成的 <code>sk_</code> Key；保存在本机，每次对话会通过{' '}
-              <code>X-API-Key</code> 发送。生产环境若开启 <code>REQUIRE_API_KEY</code>，则必须填写才能聊天。
-            </p>
-            <input
-              className="personal-textarea billing-key-input"
-              type="password"
-              autoComplete="off"
-              value={billingKeyDraft}
-              onChange={(e) => setBillingKeyDraft(e.target.value)}
-              onBlur={() => {
-                saveBillingApiKey(billingKeyDraft)
-                void refreshBilling()
-              }}
-              disabled={busy}
-              placeholder="sk_…（失焦保存）"
-              spellCheck={false}
-            />
-          </details>
         </div>
 
         <div className="dock-personal-wrap">

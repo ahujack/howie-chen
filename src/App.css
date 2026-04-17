@@ -72,6 +72,125 @@
   line-height: 1.45;
 }
 
+/* 顶栏下方：计费用户名 + API Key（与 Clerk 登录区分） */
+.billing-credential-bar {
+  flex-shrink: 0;
+  padding: 12px 20px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: linear-gradient(180deg, rgba(22, 27, 38, 0.65) 0%, rgba(15, 18, 25, 0.4) 100%);
+}
+
+.billing-credential-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.billing-credential-badge {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #a5b4fc;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.18);
+  border: 1px solid rgba(139, 92, 246, 0.35);
+}
+
+.billing-credential-nick {
+  font-size: 0.8125rem;
+  color: #c4b5fd;
+  font-weight: 600;
+}
+
+.billing-credential-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+@media (min-width: 560px) {
+  .billing-credential-fields {
+    flex-direction: row;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 12px 16px;
+  }
+
+  .billing-credential-field {
+    flex: 1 1 12rem;
+    min-width: 0;
+  }
+
+  .billing-credential-field--key {
+    flex: 2 1 16rem;
+  }
+}
+
+.billing-credential-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.billing-credential-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.billing-credential-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-raised);
+  color: var(--text);
+  font-size: 0.8125rem;
+}
+
+.billing-key-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.billing-key-row .billing-credential-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.billing-copy-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 0.75rem !important;
+  padding: 8px 12px !important;
+}
+
+.billing-credential-toast {
+  margin: 8px 0 0;
+  font-size: 0.75rem;
+  color: #86efac;
+}
+
+.billing-credential-hint {
+  margin: 10px 0 0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.billing-credential-hint code {
+  font-size: 0.68rem;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.85);
+}
+
 .main-area {
   flex: 1;
   min-height: 0;
@@ -1389,6 +1508,29 @@
 
 .admin-eye-btn:disabled {
   opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.admin-key-copy-btn {
+  flex-shrink: 0;
+  align-self: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.12);
+  color: #c4b5fd;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 6px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.admin-key-copy-btn:hover:not(:disabled) {
+  background: rgba(99, 102, 241, 0.24);
+}
+
+.admin-key-copy-btn:disabled {
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
