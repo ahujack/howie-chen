@@ -52,6 +52,11 @@ module.exports = async function handler(req, res) {
 
     if (req.method === 'POST') {
       const username = body.username
+      if (typeof username !== 'string' || !username.trim()) {
+        corsJson(res)
+        res.status(400).json({ error: '请求体须包含非空 username（字符串）' })
+        return
+      }
       const initialPoints =
         body.initialPoints !== undefined ? Number(body.initialPoints) : DEFAULT_GRANT_POINTS
       const note = body.note
@@ -86,6 +91,20 @@ module.exports = async function handler(req, res) {
     const msg = e && e.message
     if (msg && msg.includes('unique')) {
       res.status(409).json({ error: '用户名已存在' })
+      return
+    }
+    if (
+      msg &&
+      (msg.includes('数据库') ||
+        msg.includes('ECONNREFUSED') ||
+        msg.includes('ETIMEDOUT') ||
+        msg.includes('ENOTFOUND') ||
+        /authentication failed|SSL|TLS|certificate/i.test(msg))
+    ) {
+      res.status(503).json({
+        error: String(msg),
+        hint: '请检查 Vercel 环境变量 DATABASE_URL / POSTGRES_URL，以及 Neon 等是否允许当前部署区连接',
+      })
       return
     }
     res.status(500).json({ error: msg || '服务器错误' })

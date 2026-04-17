@@ -22,8 +22,17 @@ async function parseJsonSafe(r: Response): Promise<unknown> {
   try {
     return JSON.parse(text) as unknown
   } catch {
-    throw new Error(`HTTP ${r.status}：响应不是 JSON（可能未部署 api 或命中了静态页）`)
+    const hint = text.replace(/\s+/g, ' ').slice(0, 160)
+    throw new Error(`HTTP ${r.status}：${hint || '非 JSON 响应'}`)
   }
+}
+
+function formatAdminError(j: unknown): string {
+  if (!j || typeof j !== 'object') return '请求失败'
+  const o = j as { error?: unknown; hint?: unknown }
+  const a = typeof o.error === 'string' ? o.error : ''
+  const b = typeof o.hint === 'string' ? o.hint : ''
+  return [a || '请求失败', b].filter(Boolean).join(' · ')
 }
 
 function loadToken() {
@@ -131,7 +140,7 @@ export default function AdminPanel() {
       const r = await fetch('/api/admin-accounts', { ...noCache, headers: { ...authHeaders() } })
       const j = (await parseJsonSafe(r)) as { accounts?: AccountRow[]; defaultGrantPoints?: number; error?: string }
       if (!r.ok) {
-        setErr((typeof j.error === 'string' && j.error) || '加载失败')
+        setErr(formatAdminError(j))
         if (r.status === 401) setToken('')
         return
       }
@@ -158,7 +167,7 @@ export default function AdminPanel() {
       })
       const j = (await parseJsonSafe(r)) as { token?: string; error?: string }
       if (!r.ok) {
-        setErr((typeof j.error === 'string' && j.error) || '登录失败')
+        setErr(formatAdminError(j))
         return
       }
       if (j.token) {
@@ -199,7 +208,7 @@ export default function AdminPanel() {
       })
       const j = (await parseJsonSafe(r)) as { apiKey?: string; error?: string }
       if (!r.ok) {
-        setErr((typeof j.error === 'string' && j.error) || '创建失败')
+        setErr(formatAdminError(j))
         return
       }
       if (j.apiKey) {
@@ -225,7 +234,7 @@ export default function AdminPanel() {
       })
       const j = (await parseJsonSafe(r)) as { apiKey?: string; error?: string }
       if (!r.ok) {
-        setErr((typeof j.error === 'string' && j.error) || '无法获取完整 Key')
+        setErr(formatAdminError(j))
         return
       }
       if (j.apiKey) {
@@ -272,7 +281,7 @@ export default function AdminPanel() {
       })
       const j = (await parseJsonSafe(r)) as { error?: string }
       if (!r.ok) {
-        setErr((typeof j.error === 'string' && j.error) || '充值失败')
+        setErr(formatAdminError(j))
         return
       }
       await loadAccounts()
