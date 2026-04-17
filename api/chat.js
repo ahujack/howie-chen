@@ -5,14 +5,14 @@
 
 const fs = require('fs')
 const path = require('path')
-const HOT_ROOTS = require('../lib/hotRoots.js')
-const { getPool, ensurePersonaTable } = require('../lib/db.js')
-const { verifyClerkBearer } = require('../lib/auth.js')
+const HOT_ROOTS = require('../lib/hotRoots.cjs')
+const { getPool, ensurePersonaTable } = require('../lib/db.cjs')
+const { verifyClerkBearer } = require('../lib/auth.cjs')
 const {
   findAccountByApiKey,
   deductPointsForChat,
   estimateTokensFromTurns,
-} = require('../lib/billingCore.js')
+} = require('../lib/billingCore.cjs')
 
 const REQUIRE_API_KEY = process.env.REQUIRE_API_KEY === 'true'
 

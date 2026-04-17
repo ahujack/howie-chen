@@ -1,5 +1,5 @@
-const { signAdminToken, verifyAdminPassword, getAdminSecret } = require('../lib/adminAuth.js')
-const { readJsonBody } = require('../lib/readJsonBody.js')
+const { signAdminToken, verifyAdminPassword, getAdminSecret } = require('../lib/adminAuth.cjs')
+const { readJsonBody } = require('../lib/readJsonBody.cjs')
 
 function corsJson(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')

@@ -1,12 +1,12 @@
-const { verifyAdminBearer } = require('../lib/adminAuth.js')
-const { readJsonBody } = require('../lib/readJsonBody.js')
+const { verifyAdminBearer } = require('../lib/adminAuth.cjs')
+const { readJsonBody } = require('../lib/readJsonBody.cjs')
 const {
   createAccount,
   listAccounts,
   grantTopUp,
   DEFAULT_GRANT_POINTS,
   TOKENS_PER_POINT,
-} = require('../lib/billingCore.js')
+} = require('../lib/billingCore.cjs')
 
 function corsJson(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')

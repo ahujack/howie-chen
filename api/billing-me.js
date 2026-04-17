@@ -2,7 +2,7 @@ const {
   findAccountByApiKey,
   TOKENS_PER_POINT,
   DEFAULT_GRANT_POINTS,
-} = require('../lib/billingCore.js')
+} = require('../lib/billingCore.cjs')
 
 function corsJson(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
