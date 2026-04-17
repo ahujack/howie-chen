@@ -13,6 +13,19 @@ type AccountRow = {
 
 const TOKEN_KEY = 'howie_admin_jwt_v1'
 
+/** 避免 GET /api/admin-accounts 被浏览器/CDN 缓存成旧空列表 */
+const noCache: RequestInit = { cache: 'no-store' }
+
+async function parseJsonSafe(r: Response): Promise<unknown> {
+  const text = await r.text()
+  if (!text.trim()) return {}
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    throw new Error(`HTTP ${r.status}：响应不是 JSON（可能未部署 api 或命中了静态页）`)
+  }
+}
+
 function loadToken() {
   try {
     return sessionStorage.getItem(TOKEN_KEY) ?? ''
@@ -114,15 +127,19 @@ export default function AdminPanel() {
 
   const loadAccounts = useCallback(async () => {
     setErr('')
-    const r = await fetch('/api/admin-accounts', { headers: { ...authHeaders() } })
-    const j = (await r.json()) as { accounts?: AccountRow[]; defaultGrantPoints?: number; error?: string }
-    if (!r.ok) {
-      setErr(j.error || '加载失败')
-      if (r.status === 401) setToken('')
-      return
+    try {
+      const r = await fetch('/api/admin-accounts', { ...noCache, headers: { ...authHeaders() } })
+      const j = (await parseJsonSafe(r)) as { accounts?: AccountRow[]; defaultGrantPoints?: number; error?: string }
+      if (!r.ok) {
+        setErr((typeof j.error === 'string' && j.error) || '加载失败')
+        if (r.status === 401) setToken('')
+        return
+      }
+      setAccounts(j.accounts ?? [])
+      if (j.defaultGrantPoints != null) setDefaultGrant(j.defaultGrantPoints)
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '加载失败')
     }
-    setAccounts(j.accounts ?? [])
-    if (j.defaultGrantPoints != null) setDefaultGrant(j.defaultGrantPoints)
   }, [authHeaders, token])
 
   useEffect(() => {
@@ -134,19 +151,22 @@ export default function AdminPanel() {
     setErr('')
     try {
       const r = await fetch('/api/admin-login', {
+        ...noCache,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password }),
       })
-      const j = (await r.json()) as { token?: string; error?: string }
+      const j = (await parseJsonSafe(r)) as { token?: string; error?: string }
       if (!r.ok) {
-        setErr(j.error || '登录失败')
+        setErr((typeof j.error === 'string' && j.error) || '登录失败')
         return
       }
       if (j.token) {
         saveToken(j.token)
         setToken(j.token)
       }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '登录请求失败')
     } finally {
       setBusy(false)
     }
@@ -168,6 +188,7 @@ export default function AdminPanel() {
     const u = newUser.trim() || makeRandomUsername()
     try {
       const r = await fetch('/api/admin-accounts', {
+        ...noCache,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({
@@ -176,9 +197,9 @@ export default function AdminPanel() {
           note: newNote.trim() || undefined,
         }),
       })
-      const j = (await r.json()) as { apiKey?: string; error?: string }
+      const j = (await parseJsonSafe(r)) as { apiKey?: string; error?: string }
       if (!r.ok) {
-        setErr(j.error || '创建失败')
+        setErr((typeof j.error === 'string' && j.error) || '创建失败')
         return
       }
       if (j.apiKey) {
@@ -187,6 +208,8 @@ export default function AdminPanel() {
       }
       setNewUser(makeRandomUsername())
       await loadAccounts()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '创建请求失败')
     } finally {
       setBusy(false)
     }
@@ -197,17 +220,20 @@ export default function AdminPanel() {
     setErr('')
     try {
       const r = await fetch(`/api/admin-account-key?accountId=${encodeURIComponent(accountId)}`, {
+        ...noCache,
         headers: { ...authHeaders() },
       })
-      const j = (await r.json()) as { apiKey?: string; error?: string }
+      const j = (await parseJsonSafe(r)) as { apiKey?: string; error?: string }
       if (!r.ok) {
-        setErr(j.error || '无法获取完整 Key')
+        setErr((typeof j.error === 'string' && j.error) || '无法获取完整 Key')
         return
       }
       if (j.apiKey) {
         setKeyCache((m) => ({ ...m, [accountId]: j.apiKey! }))
         setKeyVisible((m) => ({ ...m, [accountId]: true }))
       }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '请求失败')
     } finally {
       setKeyLoading((m) => ({ ...m, [accountId]: false }))
     }
@@ -239,16 +265,19 @@ export default function AdminPanel() {
     setErr('')
     try {
       const r = await fetch('/api/admin-accounts', {
+        ...noCache,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ accountId, grantPoints: pts }),
       })
-      const j = (await r.json()) as { error?: string }
+      const j = (await parseJsonSafe(r)) as { error?: string }
       if (!r.ok) {
-        setErr(j.error || '充值失败')
+        setErr((typeof j.error === 'string' && j.error) || '充值失败')
         return
       }
       await loadAccounts()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '充值请求失败')
     } finally {
       setBusy(false)
     }

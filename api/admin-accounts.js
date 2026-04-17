@@ -1,4 +1,5 @@
 const { verifyAdminBearer } = require('../lib/adminAuth.js')
+const { readJsonBody } = require('../lib/readJsonBody.js')
 const {
   createAccount,
   listAccounts,
@@ -11,6 +12,7 @@ function corsJson(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  res.setHeader('Cache-Control', 'private, no-store, must-revalidate')
 }
 
 module.exports = async function handler(req, res) {
@@ -38,11 +40,10 @@ module.exports = async function handler(req, res) {
       return
     }
 
-    let body = req.body
-    if (typeof body === 'string') {
-      try {
-        body = JSON.parse(body)
-      } catch {
+    let body = {}
+    if (req.method === 'POST' || req.method === 'PATCH') {
+      body = await readJsonBody(req)
+      if (body === null) {
         corsJson(res)
         res.status(400).json({ error: '请求体须为 JSON' })
         return
