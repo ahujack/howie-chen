@@ -2,7 +2,7 @@
 export const HERO_GREETING = '你好，有什么可以帮你？'
 
 export const HERO_INTRO =
-  '我可以结合联网检索（可选）协助你：短视频选题与脚本、开头优化、账号诊断、朋友圈文案等；默认叠加「方面陈 · 内容创作方法论知识库」。底部可一键「拉取微博/小红书热点」（Tavily 检索摘要，非官方榜单）。登录谷歌账号或填写有效计费 Key 后，可同步「云端人设」（五维等）到对话。'
+  '底部先选三种模式之一（方面陈爆款 / 港险 AI 规划师 / 通用 AI 规划师），再展开对应快捷能力，避免一次看到全部按钮。我可结合联网检索（可选）协助选题、脚本、诊断等；方面陈模式默认叠加方法论知识库。登录或填写有效计费 Key 后可同步云端人设。'
 
 /** 首条助手介绍（品牌：陈科豪体系）— 放在「查看全部能力」里 */
 export const WELCOME_MESSAGE = `我可以作为您的智能助手，协助您处理短视频运营、朋友圈营销以及代码执行等相关任务。具体来说，我能为您做以下事情：
@@ -89,17 +89,8 @@ export type QuickChip = {
   universalAiPlanner?: boolean
 }
 
-export const QUICK_CHIPS: QuickChip[] = [
-  {
-    label: '通用·AI规划师',
-    text: '你好，我想做一下 AI 能力自我诊断（不限行业）。',
-    universalAiPlanner: true,
-  },
-  {
-    label: '港险·AI诊断',
-    text: '你好，我想开始港险 AI 段位诊断。',
-    hkInsuranceAiDiagnostician: true,
-  },
+/** 方面陈爆款模式：选题、脚本、账号等（不含港险/通用入口，由顶部分区切换） */
+export const HOWIE_QUICK_CHIPS: QuickChip[] = [
   {
     label: '热点解读',
     text:
@@ -121,5 +112,30 @@ export const QUICK_CHIPS: QuickChip[] = [
   { label: '优化开头', text: '帮我优化视频开头' },
   { label: '账号诊断', text: '账号诊断', creationStage: 'intake' },
   { label: '写朋友圈', text: '写朋友圈，新品上新' },
+]
+
+/** 港险 AI 规划师分区 */
+export const HK_QUICK_CHIPS: QuickChip[] = [
+  {
+    label: '港险·开始问诊',
+    text: '你好，我想开始港险 AI 段位诊断。',
+    hkInsuranceAiDiagnostician: true,
+  },
+]
+
+/** 通用 AI 规划师分区 */
+export const UNIVERSAL_QUICK_CHIPS: QuickChip[] = [
+  {
+    label: '通用·开始诊断',
+    text: '你好，我想做一下 AI 能力自我诊断（不限行业）。',
+    universalAiPlanner: true,
+  },
   { label: '随便问问', text: '搜索近期 AI 应用案例与趋势', forceWebSearch: true },
+]
+
+/** @deprecated 仅兼容旧引用；新 UI 请用 HOWIE / HK / UNIVERSAL 三份列表 */
+export const QUICK_CHIPS: QuickChip[] = [
+  ...UNIVERSAL_QUICK_CHIPS,
+  ...HK_QUICK_CHIPS,
+  ...HOWIE_QUICK_CHIPS,
 ]

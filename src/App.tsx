@@ -8,7 +8,16 @@ import {
 } from '@clerk/clerk-react'
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { buildLocalReply } from './chatReply'
-import { CREATION_STAGE_OPTIONS, HERO_GREETING, HERO_INTRO, QUICK_CHIPS, WELCOME_MESSAGE } from './copy'
+import {
+  CREATION_STAGE_OPTIONS,
+  HERO_GREETING,
+  HERO_INTRO,
+  HOWIE_QUICK_CHIPS,
+  HK_QUICK_CHIPS,
+  type QuickChip,
+  UNIVERSAL_QUICK_CHIPS,
+  WELCOME_MESSAGE,
+} from './copy'
 import { fetchHotTrendsMarkdown } from './fetchHotTrends'
 import { MessageBody } from './MessageBody'
 import {
@@ -622,6 +631,52 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
     return getFreeRoundsUsed() >= getFreeChatLimit()
   }, [freeTierBump, billingKeyDraft])
 
+  const applyProductMode = useCallback((m: 'howie' | 'hk' | 'universal') => {
+    if (m === 'howie') {
+      setHkInsuranceAiDiagnostician(false)
+      saveHkInsuranceAiDiagnostician(false)
+      setUniversalAiPlanner(false)
+      saveUniversalAiPlanner(false)
+    } else if (m === 'hk') {
+      setHkInsuranceAiDiagnostician(true)
+      saveHkInsuranceAiDiagnostician(true)
+      setUniversalAiPlanner(false)
+      saveUniversalAiPlanner(false)
+    } else {
+      setUniversalAiPlanner(true)
+      saveUniversalAiPlanner(true)
+      setHkInsuranceAiDiagnostician(false)
+      saveHkInsuranceAiDiagnostician(false)
+    }
+  }, [])
+
+  const onQuickChipClick = useCallback(
+    (c: QuickChip) => {
+      if (busy || freeChatBlocked) return
+      if (c.hkInsuranceAiDiagnostician) {
+        setHkInsuranceAiDiagnostician(true)
+        saveHkInsuranceAiDiagnostician(true)
+        setUniversalAiPlanner(false)
+        saveUniversalAiPlanner(false)
+      }
+      if (c.universalAiPlanner) {
+        setUniversalAiPlanner(true)
+        saveUniversalAiPlanner(true)
+        setHkInsuranceAiDiagnostician(false)
+        saveHkInsuranceAiDiagnostician(false)
+      }
+      void sendText(c.text, {
+        webSearchOverride: c.forceWebSearch ? true : undefined,
+        searchIntent: c.searchIntent,
+        creationStage: c.creationStage,
+        injectHotRoots: c.injectHotRoots,
+        hkInsuranceAiDiagnostician: c.hkInsuranceAiDiagnostician,
+        universalAiPlanner: c.universalAiPlanner,
+      })
+    },
+    [busy, freeChatBlocked, sendText],
+  )
+
   const freeRoundsForUi = useMemo(() => {
     if (USE_LOCAL_ONLY) return null
     if (looksLikeBillingKey(billingKeyDraft || loadBillingApiKey())) return null
@@ -681,6 +736,11 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   }, [busy, hotTrendsLoading])
 
   const diagMode = hkInsuranceAiDiagnostician || universalAiPlanner
+  const productMode: 'howie' | 'hk' | 'universal' = universalAiPlanner
+    ? 'universal'
+    : hkInsuranceAiDiagnostician
+      ? 'hk'
+      : 'howie'
 
   const userMessageCount = messages.filter((m) => m.role === 'user').length
   const diagStep: 1 | 2 | 3 =
@@ -965,6 +1025,47 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
           />
         ) : null}
 
+        <div className="dock-mode-tabs" role="tablist" aria-label="产品模式">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={productMode === 'howie'}
+            className={`dock-mode-tab${productMode === 'howie' ? ' is-active' : ''}`}
+            onClick={() => applyProductMode('howie')}
+            disabled={busy}
+          >
+            方面陈爆款
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={productMode === 'hk'}
+            className={`dock-mode-tab${productMode === 'hk' ? ' is-active' : ''}`}
+            onClick={() => applyProductMode('hk')}
+            disabled={busy}
+          >
+            港险 AI 规划师
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={productMode === 'universal'}
+            className={`dock-mode-tab${productMode === 'universal' ? ' is-active' : ''}`}
+            onClick={() => applyProductMode('universal')}
+            disabled={busy}
+          >
+            通用 AI 规划师
+          </button>
+        </div>
+
+        <p className="dock-mode-panel-hint">
+          {productMode === 'howie'
+            ? '选题、脚本、朋友圈、热点等创作能力；先选模式再点下方快捷句，减少干扰。'
+            : productMode === 'hk'
+              ? '港险团队 AI 段位诊断流程；与方面陈口播创作互不叠加。'
+              : '全行业 AI 能力自我诊断 / 规划；与方面陈创作互不叠加。'}
+        </p>
+
         <div className="dock-tools dock-tools-toggles">
           <label className="web-toggle">
             <input
@@ -975,79 +1076,49 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
             />
             <span>联网搜索</span>
           </label>
-          <label className="web-toggle">
-            <input
-              type="checkbox"
-              checked={hkInsuranceAiDiagnostician}
-              onChange={(e) => {
-                const on = e.target.checked
-                setHkInsuranceAiDiagnostician(on)
-                saveHkInsuranceAiDiagnostician(on)
-                if (on) {
-                  setUniversalAiPlanner(false)
-                  saveUniversalAiPlanner(false)
-                }
-              }}
-              disabled={busy}
-            />
-            <span>港险·AI段位诊断师</span>
-          </label>
-          <label className="web-toggle">
-            <input
-              type="checkbox"
-              checked={universalAiPlanner}
-              onChange={(e) => {
-                const on = e.target.checked
-                setUniversalAiPlanner(on)
-                saveUniversalAiPlanner(on)
-                if (on) {
-                  setHkInsuranceAiDiagnostician(false)
-                  saveHkInsuranceAiDiagnostician(false)
-                }
-              }}
-              disabled={busy}
-            />
-            <span>通用·AI规划师</span>
-          </label>
-          <label className="web-toggle">
-            <input
-              type="checkbox"
-              checked={howieKnowledgeBase}
-              onChange={(e) => {
-                const on = e.target.checked
-                setHowieKnowledgeBase(on)
-                saveHowieKnowledgeBase(on)
-              }}
-              disabled={busy || diagMode}
-            />
-            <span>方面陈知识库</span>
-          </label>
-          <label className="web-toggle">
-            <input
-              type="checkbox"
-              checked={howiePersonaVoice}
-              onChange={(e) => {
-                const on = e.target.checked
-                setHowiePersonaVoice(on)
-                saveHowiePersonaVoice(on)
-              }}
-              disabled={busy || diagMode}
-            />
-            <span>方面陈演示口吻</span>
-          </label>
-          <label className="web-toggle">
-            <input
-              type="checkbox"
-              checked={injectHotRoots}
-              onChange={(e) => {
-                const on = e.target.checked
-                setInjectHotRoots(on)
-                saveInjectHotRoots(on)
-              }}
-              disabled={busy || diagMode}
-            />
-            <span>注入热点词根</span>
-          </label>
+          {productMode === 'howie' ? (
+            <>
+              <label className="web-toggle">
+                <input
+                  type="checkbox"
+                  checked={howieKnowledgeBase}
+                  onChange={(e) => {
+                    const on = e.target.checked
+                    setHowieKnowledgeBase(on)
+                    saveHowieKnowledgeBase(on)
+                  }}
+                  disabled={busy}
+                />
+                <span>方面陈知识库</span>
+              </label>
+              <label className="web-toggle">
+                <input
+                  type="checkbox"
+                  checked={howiePersonaVoice}
+                  onChange={(e) => {
+                    const on = e.target.checked
+                    setHowiePersonaVoice(on)
+                    saveHowiePersonaVoice(on)
+                  }}
+                  disabled={busy}
+                />
+                <span>方面陈演示口吻</span>
+              </label>
+              <label className="web-toggle">
+                <input
+                  type="checkbox"
+                  checked={injectHotRoots}
+                  onChange={(e) => {
+                    const on = e.target.checked
+                    setInjectHotRoots(on)
+                    saveInjectHotRoots(on)
+                  }}
+                  disabled={busy}
+                />
+                <span>注入热点词根</span>
+              </label>
+            </>
+          ) : null}
         </div>
         {diagMode ? (
           <p className="dock-personal-hint" style={{ marginTop: 4, marginBottom: 0 }}>
@@ -1070,27 +1141,29 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
           </div>
         ) : null}
 
-        <div className="dock-row-tools">
-          <label className="web-toggle" style={{ flex: '1 1 200px' }}>
-            <span style={{ marginRight: 8 }}>阶段</span>
-            <select
-              className="dock-select"
-              value={creationStage}
-              onChange={(e) => {
-                const v = e.target.value
-                setCreationStage(v)
-                saveCreationStage(v)
-              }}
-              disabled={busy || diagMode}
-            >
-              {CREATION_STAGE_OPTIONS.map((o) => (
-                <option key={o.id || 'default'} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        {productMode === 'howie' ? (
+          <div className="dock-row-tools">
+            <label className="web-toggle" style={{ flex: '1 1 200px' }}>
+              <span style={{ marginRight: 8 }}>阶段</span>
+              <select
+                className="dock-select"
+                value={creationStage}
+                onChange={(e) => {
+                  const v = e.target.value
+                  setCreationStage(v)
+                  saveCreationStage(v)
+                }}
+                disabled={busy}
+              >
+                {CREATION_STAGE_OPTIONS.map((o) => (
+                  <option key={o.id || 'default'} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        ) : null}
 
         <div className="dock-personal-wrap">
           <details className="dock-personal dock-personal-block">
@@ -1128,47 +1201,54 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
         </div>
 
         <div className="chips" role="toolbar" aria-label="快捷指令">
-          <button
-            type="button"
-            className="chip chip-hot-trends"
-            disabled={busy || hotTrendsLoading}
-            onClick={() => void appendHotTrendsToInput()}
-            title="用 Tavily 检索「微博/小红书」相关网页摘要，填入输入框（非官方热搜 API）"
-          >
-            {hotTrendsLoading ? '正在拉取热点…' : '拉取微博/小红书热点'}
-          </button>
-          {QUICK_CHIPS.map((c) => (
-            <button
-              key={c.label}
-              type="button"
-              className="chip"
-              disabled={busy || freeChatBlocked}
-              onClick={() => {
-                if (c.hkInsuranceAiDiagnostician) {
-                  setHkInsuranceAiDiagnostician(true)
-                  saveHkInsuranceAiDiagnostician(true)
-                  setUniversalAiPlanner(false)
-                  saveUniversalAiPlanner(false)
-                }
-                if (c.universalAiPlanner) {
-                  setUniversalAiPlanner(true)
-                  saveUniversalAiPlanner(true)
-                  setHkInsuranceAiDiagnostician(false)
-                  saveHkInsuranceAiDiagnostician(false)
-                }
-                void sendText(c.text, {
-                  webSearchOverride: c.forceWebSearch ? true : undefined,
-                  searchIntent: c.searchIntent,
-                  creationStage: c.creationStage,
-                  injectHotRoots: c.injectHotRoots,
-                  hkInsuranceAiDiagnostician: c.hkInsuranceAiDiagnostician,
-                  universalAiPlanner: c.universalAiPlanner,
-                })
-              }}
-            >
-              {c.label}
-            </button>
-          ))}
+          {productMode === 'howie' ? (
+            <>
+              <button
+                type="button"
+                className="chip chip-hot-trends"
+                disabled={busy || hotTrendsLoading}
+                onClick={() => void appendHotTrendsToInput()}
+                title="用 Tavily 检索「微博/小红书」相关网页摘要，填入输入框（非官方热搜 API）"
+              >
+                {hotTrendsLoading ? '正在拉取热点…' : '拉取微博/小红书热点'}
+              </button>
+              {HOWIE_QUICK_CHIPS.map((c) => (
+                <button
+                  key={c.label}
+                  type="button"
+                  className="chip"
+                  disabled={busy || freeChatBlocked}
+                  onClick={() => onQuickChipClick(c)}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </>
+          ) : productMode === 'hk' ? (
+            HK_QUICK_CHIPS.map((c) => (
+              <button
+                key={c.label}
+                type="button"
+                className="chip"
+                disabled={busy || freeChatBlocked}
+                onClick={() => onQuickChipClick(c)}
+              >
+                {c.label}
+              </button>
+            ))
+          ) : (
+            UNIVERSAL_QUICK_CHIPS.map((c) => (
+              <button
+                key={c.label}
+                type="button"
+                className="chip"
+                disabled={busy || freeChatBlocked}
+                onClick={() => onQuickChipClick(c)}
+              >
+                {c.label}
+              </button>
+            ))
+          )}
         </div>
 
         {guardMsg ? (
