@@ -117,7 +117,7 @@ export const HOWIE_QUICK_CHIPS: QuickChip[] = [
 /** 港险 AI 规划师分区 */
 export const HK_QUICK_CHIPS: QuickChip[] = [
   {
-    label: '港险·开始问诊',
+    label: '开始诊断',
     text: '你好，我想开始港险 AI 段位诊断。',
     hkInsuranceAiDiagnostician: true,
   },
@@ -126,11 +126,56 @@ export const HK_QUICK_CHIPS: QuickChip[] = [
 /** 通用 AI 规划师分区 */
 export const UNIVERSAL_QUICK_CHIPS: QuickChip[] = [
   {
-    label: '通用·开始诊断',
+    label: '开始诊断',
     text: '你好，我想做一下 AI 能力自我诊断（不限行业）。',
     universalAiPlanner: true,
   },
   { label: '随便问问', text: '搜索近期 AI 应用案例与趋势', forceWebSearch: true },
+]
+
+export type StudioHowieScenario = {
+  tag: string
+  tagTone: 'rose' | 'cyan' | 'amber' | 'violet'
+  title: string
+  sub: string
+  chip: QuickChip
+}
+
+/** 工作室首屏「第二步」四张场景卡（方面陈爆款） */
+export const STUDIO_HOWIE_SCENARIOS: StudioHowieScenario[] = [
+  {
+    tag: '蹭热点写爆款',
+    tagTone: 'rose',
+    title: '微博 / 小红书热点',
+    sub: '约 150 秒口播脚本',
+    chip: HOWIE_QUICK_CHIPS.find((c) => c.label === '热点选题')!,
+  },
+  {
+    tag: '3 秒写朋友圈',
+    tagTone: 'cyan',
+    title: '一句话 → 一条朋友圈',
+    sub: '茶餐厅语气',
+    chip: HOWIE_QUICK_CHIPS.find((c) => c.label === '写朋友圈')!,
+  },
+  {
+    tag: '重构旧选题',
+    tagTone: 'amber',
+    title: '旧选题 → 新角度',
+    sub: '换词根、换开头',
+    chip: HOWIE_QUICK_CHIPS.find((c) => c.label === '词根重构')!,
+  },
+  {
+    tag: '问方面陈',
+    tagTone: 'violet',
+    title: '跟方面陈聊一聊',
+    sub: '港仔视角回答问题',
+    chip: {
+      label: '问方面陈',
+      text:
+        '请用方面陈内容创作知识库里嘅方法论，以港仔朋友式口吻用中文同我倾偈（像茶餐厅吹水），回答我下面嘅问题；唔好写成完整口播稿或研报，除非我明确要求。若我冇讲背景，先问一句再答：\n\n',
+      creationStage: 'intake',
+    },
+  },
 ]
 
 /** @deprecated 仅兼容旧引用；新 UI 请用 HOWIE / HK / UNIVERSAL 三份列表 */

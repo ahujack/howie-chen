@@ -6,12 +6,10 @@ import {
   useAuth,
   UserButton,
 } from '@clerk/clerk-react'
-import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { buildLocalReply } from './chatReply'
 import {
   CREATION_STAGE_OPTIONS,
-  HERO_GREETING,
-  HERO_INTRO,
   HOWIE_QUICK_CHIPS,
   HK_QUICK_CHIPS,
   type QuickChip,
@@ -41,13 +39,27 @@ import {
   saveBillingApiKey,
   saveBillingUsername,
 } from './billingStorage'
-import { looksLikeBillingKey, normalizeBillingApiKey } from './billingKeyUtils'
+import {
+  billingTierDefaultsAdvancedOpen,
+  detectBillingKeyTier,
+  looksLikeBillingKey,
+  normalizeBillingApiKey,
+} from './billingKeyUtils'
 
 const BILLING_BAR_COLLAPSED_KEY = 'howie_billing_bar_collapsed_v1'
-import { getFreeChatLimit, getFreeRoundsUsed, incrementFreeRoundsUsed } from './freeChatLimit'
+import {
+  getFreeChatLimit,
+  getFreeRoundsUsed,
+  getTrialChatLimit,
+  getTrialRoundsUsed,
+  incrementFreeRoundsUsed,
+  incrementTrialRoundsUsed,
+} from './freeChatLimit'
 import { DiagnosticFirstRoundForm, DiagnosticStepper } from './DiagnosticUI'
 import { ChatWaitPanel, PinnedRetrievalCard, type PinnedRetrieval } from './StreamProgress'
 import { userFacingChatError } from './chatUserError'
+import { STUDIO_APP_TITLE, STUDIO_WECHAT_ID } from './studioConstants'
+import { StudioWorkbench } from './StudioWorkbench'
 import { consumeChatSse, mergeMetaToWaitState, type WaitPanelState } from './streamChat'
 import './App.css'
 
@@ -80,37 +92,6 @@ function uid() {
 /** 仅本地 `npm run dev` 生效；生产构建忽略，避免 Vercel 上误配后永远走假回复 */
 const USE_LOCAL_ONLY =
   import.meta.env.DEV && import.meta.env.VITE_USE_LOCAL_CHAT === 'true'
-
-function RobotMark({ size = 40 }: { size?: number }) {
-  const gid = useId().replace(/:/g, '')
-  const gradId = `logo-grad-${gid}`
-  return (
-    <svg
-      className="robot-mark"
-      width={size}
-      height={size}
-      viewBox="0 0 40 40"
-      aria-hidden
-    >
-      <defs>
-        <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#22d3ee" />
-          <stop offset="100%" stopColor="#a78bfa" />
-        </linearGradient>
-      </defs>
-      <rect width="40" height="40" rx="10" fill={`url(#${gradId})`} />
-      <circle cx="14" cy="16" r="3" fill="#0f172a" />
-      <circle cx="26" cy="16" r="3" fill="#0f172a" />
-      <path
-        d="M12 26 Q20 30 28 26"
-        fill="none"
-        stroke="#0f172a"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-    </svg>
-  )
-}
 
 function IconLightbulb() {
   return (
@@ -227,16 +208,9 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   const [showBillingKeyPlain, setShowBillingKeyPlain] = useState(false)
   const [guardMsg, setGuardMsg] = useState('')
   const [freeTierBump, setFreeTierBump] = useState(0)
-  const [billingBarCollapsed, setBillingBarCollapsed] = useState(() => {
-    try {
-      if (!looksLikeBillingKey(loadBillingApiKey())) return false
-      const f = localStorage.getItem(BILLING_BAR_COLLAPSED_KEY)
-      if (f === '0') return false
-      return true
-    } catch {
-      return false
-    }
-  })
+  const [studioAdvancedOpen, setStudioAdvancedOpen] = useState(() =>
+    billingTierDefaultsAdvancedOpen(loadBillingApiKey()),
+  )
   const [pointsBalance, setPointsBalance] = useState<number | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const messagesRef = useRef(messages)
@@ -252,7 +226,6 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
 
   useEffect(() => {
     if (!looksLikeBillingKey(loadBillingApiKey())) {
-      setBillingBarCollapsed(false)
       try {
         localStorage.removeItem(BILLING_BAR_COLLAPSED_KEY)
       } catch {
@@ -261,13 +234,12 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
     }
   }, [freeTierBump, billingKeyDraft])
 
-  const persistBillingCollapsed = (collapsed: boolean) => {
+  const persistBillingCollapsedPref = (collapsed: boolean) => {
     try {
       localStorage.setItem(BILLING_BAR_COLLAPSED_KEY, collapsed ? '1' : '0')
     } catch {
       /* ignore */
     }
-    setBillingBarCollapsed(collapsed)
   }
 
   const saveBillingAndCollapse = () => {
@@ -284,7 +256,8 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
     void refreshBilling()
     setGuardMsg('')
     setFreeTierBump((v) => v + 1)
-    persistBillingCollapsed(true)
+    persistBillingCollapsedPref(true)
+    if (billingTierDefaultsAdvancedOpen(k)) setStudioAdvancedOpen(true)
   }
 
   const buildPersonaFetchHeaders = useCallback(async (): Promise<Record<string, string> | null> => {
@@ -355,7 +328,6 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
     } catch {
       /* ignore */
     }
-    setBillingBarCollapsed(false)
   }, [])
 
   useEffect(() => {
@@ -428,14 +400,21 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
       const billingKeyForRequest = looksLikeBillingKey(billingKeyRaw)
         ? normalizeBillingApiKey(billingKeyRaw)
         : ''
+      const billingTier = detectBillingKeyTier(billingKeyRaw)
 
       if (!USE_LOCAL_ONLY) {
         if (!billingKeyForRequest) {
           const lim = getFreeChatLimit()
           if (getFreeRoundsUsed() >= lim) {
             setGuardMsg(
-              `免费体验已用完（${lim} 轮）。请在「计费登录」填写完整 sk_ Key，或联系管理员。`,
+              `免费体验已用完（${lim} 次）。请点右上角「填入 Key」或加微信 ${STUDIO_WECHAT_ID} 领取。`,
             )
+            return
+          }
+        } else if (billingTier === 'trial') {
+          const tlim = getTrialChatLimit()
+          if (getTrialRoundsUsed() >= tlim) {
+            setGuardMsg(`学员试用已用完（${tlim} 次）。请联系 ${STUDIO_WECHAT_ID} 续费或升级 Key。`)
             return
           }
         }
@@ -587,6 +566,9 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
         if (!USE_LOCAL_ONLY && !hadBillingKey) {
           incrementFreeRoundsUsed()
           setFreeTierBump((v) => v + 1)
+        } else if (!USE_LOCAL_ONLY && hadBillingKey && billingTier === 'trial') {
+          incrementTrialRoundsUsed()
+          setFreeTierBump((v) => v + 1)
         }
         setGuardMsg('')
         if (!assistantId) pushAssistant(uid(), '（无内容）')
@@ -627,9 +609,39 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
 
   const freeChatBlocked = useMemo(() => {
     if (USE_LOCAL_ONLY) return false
-    if (looksLikeBillingKey(billingKeyDraft || loadBillingApiKey())) return false
+    const raw = billingKeyDraft || loadBillingApiKey()
+    if (looksLikeBillingKey(raw)) {
+      if (detectBillingKeyTier(raw) === 'trial' && getTrialRoundsUsed() >= getTrialChatLimit()) {
+        return true
+      }
+      return false
+    }
     return getFreeRoundsUsed() >= getFreeChatLimit()
   }, [freeTierBump, billingKeyDraft])
+
+  const trialRoundsForUi = useMemo(() => {
+    const raw = billingKeyDraft || loadBillingApiKey()
+    if (!looksLikeBillingKey(raw) || detectBillingKeyTier(raw) !== 'trial') return null
+    const lim = getTrialChatLimit()
+    const used = getTrialRoundsUsed()
+    return { lim, used, rem: Math.max(0, lim - used) }
+  }, [freeTierBump, billingKeyDraft])
+
+  const studioVisitor = useMemo(
+    () => !looksLikeBillingKey(billingKeyDraft || loadBillingApiKey()),
+    [freeTierBump, billingKeyDraft],
+  )
+
+  const studioSubtitle = useMemo(() => {
+    if (studioVisitor) return '我日常在用的 AI 工作流'
+    if (trialRoundsForUi) {
+      return `学员版 · 剩余 ${trialRoundsForUi.rem} 次`
+    }
+    if (pointsBalance != null) {
+      return `学员版 · 积分 ${pointsBalance.toLocaleString('zh-CN')}`
+    }
+    return '学员版 · 已登录'
+  }, [studioVisitor, trialRoundsForUi, pointsBalance, freeTierBump, billingKeyDraft])
 
   const applyProductMode = useCallback((m: 'howie' | 'hk' | 'universal') => {
     if (m === 'howie') {
@@ -685,30 +697,10 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
     return { lim, used, rem: Math.max(0, lim - used) }
   }, [freeTierBump, billingKeyDraft])
 
-  const hasSavedBillingKey = useMemo(
-    () => looksLikeBillingKey(billingKeyDraft || loadBillingApiKey()),
-    [freeTierBump, billingKeyDraft],
-  )
-
   const showPersonaBarByKey = useMemo(
     () => looksLikeBillingKey(billingKeyDraft || loadBillingApiKey()),
     [freeTierBump, billingKeyDraft],
   )
-
-  const showBillingPanel = !billingBarCollapsed || !hasSavedBillingKey
-
-  const billingCompactTitle = useMemo(() => {
-    const nick =
-      billingUsernameDraft.trim() || loadBillingUsername().trim() || '计费账户'
-    const keyOk = looksLikeBillingKey(billingKeyDraft || loadBillingApiKey())
-    const pts =
-      pointsBalance != null
-        ? `积分 ${pointsBalance.toLocaleString('zh-CN')}`
-        : keyOk
-          ? '积分 —'
-          : '未配置 Key'
-    return { nick, ptsLine: pts }
-  }, [billingUsernameDraft, billingKeyDraft, freeTierBump, pointsBalance])
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -754,44 +746,58 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
     [sendText],
   )
 
+  const studioFooterLine = useMemo(() => {
+    if (studioVisitor) {
+      const lim = getFreeChatLimit()
+      const rem = Math.max(0, lim - getFreeRoundsUsed())
+      return `今天还剩 ${rem} 次免费体验 · 加 ${STUDIO_WECHAT_ID} 领 Key`
+    }
+    if (trialRoundsForUi) {
+      return `学员 Key · 剩余 ${trialRoundsForUi.rem} 次 · 有问题 → ${STUDIO_WECHAT_ID}`
+    }
+    return `已登录 · 有问题 → ${STUDIO_WECHAT_ID}`
+  }, [studioVisitor, trialRoundsForUi, freeTierBump, billingKeyDraft])
+
+  const showWorkbenchLayout = !hasUserMessage && !diagMode
+
   return (
     <div className="chat-app">
-      <header className="header-brand">
-        <RobotMark size={36} />
-        <div className="header-brand-text">
-          <h1 className="header-title">
-            <span className="header-title-gradient">AI Agent</span>
-          </h1>
-          <p className="header-tagline">智能助手 · 工具调用 · 技能系统</p>
-          <div className="header-billing-row">
-            <a className="header-admin-link" href="/admin" target="_blank" rel="noreferrer">
-              管理后台
-            </a>
+      <header className="header-brand header-brand--studio">
+        <div className="header-studio-left">
+          <div className="studio-logo-mark" aria-hidden>
+            方
+          </div>
+          <div className="header-brand-text">
+            <h1 className="header-title header-title--studio">{STUDIO_APP_TITLE}</h1>
+            <p className="header-tagline header-tagline--studio">{studioSubtitle}</p>
+            <div className="header-billing-row">
+              <a className="header-admin-link" href="/admin" target="_blank" rel="noreferrer">
+                管理后台
+              </a>
+            </div>
           </div>
         </div>
-        <div className="header-trailing">
-          {hasSavedBillingKey ? (
-            <button
-              type="button"
-              className={`billing-compact-chip${billingBarCollapsed ? '' : ' billing-compact-chip--open'}`}
-              title={billingBarCollapsed ? '展开编辑计费 Key' : '保存并收起'}
-              onClick={() => {
-                if (billingBarCollapsed) {
-                  persistBillingCollapsed(false)
-                } else {
-                  saveBillingAndCollapse()
-                }
-              }}
-            >
-              <span className="billing-compact-nick">{billingCompactTitle.nick}</span>
-              <span className="billing-compact-pts">{billingCompactTitle.ptsLine}</span>
-            </button>
+        <div className="header-trailing header-trailing--studio">
+          {!studioVisitor ? (
+            <span className="studio-badge-ok">✓ 已登录</span>
+          ) : hasClerk ? (
+            <SignedIn>
+              <span className="studio-badge-ok">✓ 已登录</span>
+            </SignedIn>
           ) : null}
+          <button
+            type="button"
+            className="studio-gear-btn"
+            aria-expanded={studioAdvancedOpen}
+            onClick={() => setStudioAdvancedOpen((v) => !v)}
+          >
+            {studioVisitor ? '⚙ 填入 Key' : '⚙ 高级设置'}
+          </button>
           {hasClerk ? (
             <div className="header-auth">
               <SignedOut>
                 <SignInButton mode="modal">
-                  <button type="button" className="chip chip--cta">
+                  <button type="button" className="chip chip--cta studio-clerk-login">
                     登录
                   </button>
                 </SignInButton>
@@ -804,7 +810,24 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
         </div>
       </header>
 
-      {showBillingPanel ? (
+      {studioVisitor ? (
+        <div className="studio-banner studio-banner--visitor">
+          <p className="studio-banner-title">
+            选一个场景，<strong>免费试一次</strong>
+          </p>
+          <p className="studio-banner-sub">
+            用完想继续？加我微信 <strong>{STUDIO_WECHAT_ID}</strong> 领取专属 Key
+          </p>
+        </div>
+      ) : (
+        <div className="studio-banner studio-banner--student">
+          <p className="studio-banner-title">欢迎，方面陈课程学员</p>
+          <p className="studio-banner-sub">方面陈知识库和港仔语气已默认开启，直接用就行</p>
+        </div>
+      )}
+
+      {studioAdvancedOpen ? (
+        <div className="studio-advanced-panel" id="studio-advanced" role="region" aria-label="高级设置">
       <section className="billing-credential-bar" aria-label="计费账户与 API Key">
         <div className="billing-credential-head">
           <span className="billing-credential-badge">计费登录</span>
@@ -897,11 +920,189 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
           </p>
         ) : null}
         <p className="billing-credential-hint">
-          与右侧「登录」是两套体系：Clerk 用于人设与同步；此处填管理员下发的完整 <code>sk_</code> Key 用于计费（请求头{' '}
-          <code>X-API-Key</code>）。不填或格式不完整时按「免费体验」轮次对话（仅前端计数）。若部署环境开启{' '}
-          <code>BLOCK_ANONYMOUS_CHAT</code>，则服务端会拒绝未带头请求。保存并收起后可在右上角查看用户名与积分。
+          与「登录」是两套体系：Clerk 用于人设与同步；此处填管理员下发的 Key（经典 <code>sk_</code> 48 位十六进制，或{' '}
+          <code>sk_trial_</code> / <code>sk_team_</code> / <code>sk_admin_</code> 前缀试用与分级权限）。若部署开启{' '}
+          <code>BLOCK_ANONYMOUS_CHAT</code>，无 Key 请求可能被拒绝。
         </p>
       </section>
+
+      <p className="studio-advanced-section-title">云端人设</p>
+      {hasClerk ? (
+        <>
+          <SignedIn>
+            <PersonaDockBar
+              variant="clerk"
+              selectedPersonaId={selectedPersonaId}
+              personas={personas}
+              busy={busy}
+              personaBusy={personaBusy}
+              onSelectId={setSelectedPersonaId}
+              onCreate={() => void createDefaultPersona()}
+              onRefresh={() => void refreshPersonas()}
+            />
+          </SignedIn>
+          <SignedOut>
+            {showPersonaBarByKey ? (
+              <PersonaDockBar
+                variant="key"
+                selectedPersonaId={selectedPersonaId}
+                personas={personas}
+                busy={busy}
+                personaBusy={personaBusy}
+                onSelectId={setSelectedPersonaId}
+                onCreate={() => void createDefaultPersona()}
+                onRefresh={() => void refreshPersonas()}
+              />
+            ) : null}
+          </SignedOut>
+        </>
+      ) : showPersonaBarByKey ? (
+        <PersonaDockBar
+          variant="key"
+          selectedPersonaId={selectedPersonaId}
+          personas={personas}
+          busy={busy}
+          personaBusy={personaBusy}
+          onSelectId={setSelectedPersonaId}
+          onCreate={() => void createDefaultPersona()}
+          onRefresh={() => void refreshPersonas()}
+        />
+      ) : null}
+
+      <p className="studio-advanced-section-title">模型与检索</p>
+      <div className="dock-tools dock-tools-toggles studio-advanced-toggles">
+        <label className="web-toggle">
+          <input
+            type="checkbox"
+            checked={webSearch}
+            onChange={(e) => setWebSearch(e.target.checked)}
+            disabled={busy}
+          />
+          <span>联网搜索</span>
+        </label>
+        <label className="web-toggle">
+          <input
+            type="checkbox"
+            checked={howieKnowledgeBase}
+            onChange={(e) => {
+              const on = e.target.checked
+              setHowieKnowledgeBase(on)
+              saveHowieKnowledgeBase(on)
+            }}
+            disabled={busy || diagMode}
+          />
+          <span>方面陈知识库</span>
+        </label>
+        <label className="web-toggle">
+          <input
+            type="checkbox"
+            checked={howiePersonaVoice}
+            onChange={(e) => {
+              const on = e.target.checked
+              setHowiePersonaVoice(on)
+              saveHowiePersonaVoice(on)
+            }}
+            disabled={busy || diagMode}
+          />
+          <span>方面陈演示口吻</span>
+        </label>
+        <label className="web-toggle">
+          <input
+            type="checkbox"
+            checked={injectHotRoots}
+            onChange={(e) => {
+              const on = e.target.checked
+              setInjectHotRoots(on)
+              saveInjectHotRoots(on)
+            }}
+            disabled={busy || diagMode}
+          />
+          <span>注入热点词根</span>
+        </label>
+      </div>
+      {webSearch ? (
+        <div className="dock-search-query">
+          <input
+            type="text"
+            value={searchQueryDraft}
+            onChange={(e) => setSearchQueryDraft(e.target.value)}
+            disabled={busy}
+            placeholder="联网检索词（可选）"
+            autoComplete="off"
+          />
+        </div>
+      ) : null}
+      <div className="dock-row-tools">
+        <label className="web-toggle" style={{ flex: '1 1 200px' }}>
+          <span style={{ marginRight: 8 }}>创作阶段</span>
+          <select
+            className="dock-select"
+            value={creationStage}
+            onChange={(e) => {
+              const v = e.target.value
+              setCreationStage(v)
+              saveCreationStage(v)
+            }}
+            disabled={busy || diagMode}
+          >
+            {CREATION_STAGE_OPTIONS.map((o) => (
+              <option key={o.id || 'default'} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <p className="studio-advanced-section-title">个人补充（仅本浏览器）</p>
+      <textarea
+        className="personal-textarea"
+        value={personalDraft}
+        onChange={(e) => setPersonalDraft(e.target.value)}
+        onBlur={() => savePersonalContext(personalDraft)}
+        disabled={busy}
+        placeholder="口头禅、禁忌、语气偏好等，会随每次请求发送"
+        rows={3}
+        spellCheck={false}
+      />
+
+      <p className="studio-advanced-section-title">备用快捷指令</p>
+      <div className="chips studio-advanced-chips">
+        {HOWIE_QUICK_CHIPS.map((c) => (
+          <button
+            key={c.label}
+            type="button"
+            className="chip"
+            disabled={busy || freeChatBlocked}
+            onClick={() => onQuickChipClick(c)}
+          >
+            {c.label}
+          </button>
+        ))}
+        {HK_QUICK_CHIPS.map((c) => (
+          <button
+            key={`hk-${c.label}`}
+            type="button"
+            className="chip"
+            disabled={busy || freeChatBlocked}
+            onClick={() => onQuickChipClick(c)}
+          >
+            {c.label}
+          </button>
+        ))}
+        {UNIVERSAL_QUICK_CHIPS.map((c) => (
+          <button
+            key={`uni-${c.label}`}
+            type="button"
+            className="chip"
+            disabled={busy || freeChatBlocked}
+            onClick={() => onQuickChipClick(c)}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+        </div>
       ) : null}
 
       {diagMode ? <DiagnosticStepper step={diagStep} /> : null}
@@ -922,18 +1123,41 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                   onSubmit={handleDiagFirstRound}
                 />
               ) : (
-                <>
-                  <span className="hero-badge">多模式 · 联网可选</span>
-                  <div className="hero-robot">
-                    <RobotMark size={72} />
+                <div className="hero-panel-studio">
+                  <StudioWorkbench
+                    productMode={productMode}
+                    applyProductMode={applyProductMode}
+                    onQuickChipClick={onQuickChipClick}
+                    busy={busy}
+                    freeChatBlocked={freeChatBlocked}
+                    hotTrendsLoading={hotTrendsLoading}
+                    onHotTrends={() => void appendHotTrendsToInput()}
+                  />
+                  <div className="studio-direct-block">
+                    <span className="studio-direct-label">或者直接说</span>
+                    <textarea
+                      className="studio-direct-textarea"
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      disabled={busy || freeChatBlocked}
+                      placeholder="例：帮我写一条关于香港 DSE 的爆款视频脚本"
+                      rows={4}
+                      spellCheck={false}
+                    />
+                    <button
+                      type="button"
+                      className="studio-direct-send chip chip--cta"
+                      disabled={busy || !input.trim() || freeChatBlocked}
+                      onClick={() => void sendText(input)}
+                    >
+                      发送
+                    </button>
                   </div>
-                  <h2 className="hero-greeting">{HERO_GREETING}</h2>
-                  <p className="hero-intro">{HERO_INTRO}</p>
                   <details className="hero-details">
                     <summary>查看全部能力与关键词</summary>
                     <pre className="hero-details-pre">{WELCOME_MESSAGE}</pre>
                   </details>
-                </>
+                </div>
               )}
             </div>
           </section>
@@ -983,6 +1207,8 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
       </div>
 
       <div className="dock">
+        {!showWorkbenchLayout ? (
+          <>
         {hasClerk ? (
           <>
             <SignedIn>
@@ -1250,22 +1476,31 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
             ))
           )}
         </div>
+          </>
+        ) : null}
+
+        {showWorkbenchLayout ? (
+          <div className="studio-footer-bar">
+            <span className="studio-footer-text">{studioFooterLine}</span>
+          </div>
+        ) : null}
 
         {guardMsg ? (
           <div className="chat-guard-banner" role="alert">
             {guardMsg}
           </div>
         ) : null}
-        <form className="composer" onSubmit={onSubmit}>
+        <form className={`composer${showWorkbenchLayout ? ' composer--studio-min' : ''}`} onSubmit={onSubmit}>
           <div className="composer-inner">
             <span className="composer-icon-wrap" aria-hidden>
               <IconLightbulb />
             </span>
+            {!showWorkbenchLayout ? (
             <input
               className="composer-input"
               placeholder={
                 freeChatBlocked
-                  ? '免费轮次已用完，请向助理索取 API Key 并填在上方计费登录'
+                  ? '免费轮次已用完，请点右上角「填入 Key」或加微信领 Key'
                   : diagMode && userMessageCount === 0
                     ? '或在此输入首轮内容（与上方表单二选一）…'
                     : diagMode && userMessageCount === 1
@@ -1280,6 +1515,11 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
               enterKeyHint="send"
               autoComplete="off"
             />
+            ) : (
+              <span className="composer-input composer-input--studio-hint">
+                在上方大框编辑后，点此发送
+              </span>
+            )}
             <button
               type="submit"
               className="send-btn"
