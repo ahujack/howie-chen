@@ -72,7 +72,7 @@
   line-height: 1.45;
 }
 
-/* 顶栏下方：计费用户名 + API Key（与 Clerk 登录区分） */
+/* 顶栏下方：计费用户名 + API Key（与账号登录区分） */
 .billing-credential-bar {
   flex-shrink: 0;
   padding: 12px 20px 14px;

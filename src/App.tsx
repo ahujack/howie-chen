@@ -920,9 +920,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
           </p>
         ) : null}
         <p className="billing-credential-hint">
-          与「登录」是两套体系：Clerk 用于人设与同步；此处填管理员下发的 Key（经典 <code>sk_</code> 48 位十六进制，或{' '}
-          <code>sk_trial_</code> / <code>sk_team_</code> / <code>sk_admin_</code> 前缀试用与分级权限）。若部署开启{' '}
-          <code>BLOCK_ANONYMOUS_CHAT</code>，无 Key 请求可能被拒绝。
+          与右上角「登录」是两套体系：登录用于云端人设；此处粘贴助理下发的完整 Key（通常以 <code>sk_</code> 开头的一串字符），用于额度与权限。留空则按页面说明使用免费体验。
         </p>
       </section>
 
@@ -1154,7 +1152,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                     </button>
                   </div>
                   <details className="hero-details">
-                    <summary>查看全部能力与关键词</summary>
+                    <summary>我能做什么（说明）</summary>
                     <pre className="hero-details-pre">{WELCOME_MESSAGE}</pre>
                   </details>
                 </div>
@@ -1434,7 +1432,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                 className="chip chip-hot-trends"
                 disabled={busy || hotTrendsLoading}
                 onClick={() => void appendHotTrendsToInput()}
-                title="用 Tavily 检索「微博/小红书」相关网页摘要，填入输入框（非官方热搜 API）"
+                title="从微博、小红书相关网页整理摘要，填入输入框后再编辑发送"
               >
                 {hotTrendsLoading ? '正在拉取热点…' : '拉取微博/小红书热点'}
               </button>
