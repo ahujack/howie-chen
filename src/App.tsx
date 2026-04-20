@@ -758,6 +758,14 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
     return `已登录 · 有问题 → ${STUDIO_WECHAT_ID}`
   }, [studioVisitor, trialRoundsForUi, freeTierBump, billingKeyDraft])
 
+  /** 学员端不展示 /admin；仅 sk_admin_ Key 或显式环境变量时显示入口 */
+  const showStudioAdminNav = useMemo(() => {
+    if (import.meta.env.VITE_SHOW_STUDIO_ADMIN_NAV === 'true') return true
+    const raw = billingKeyDraft || loadBillingApiKey()
+    if (!looksLikeBillingKey(raw)) return false
+    return detectBillingKeyTier(raw) === 'admin'
+  }, [freeTierBump, billingKeyDraft])
+
   const showWorkbenchLayout = !hasUserMessage && !diagMode
 
   return (
@@ -770,11 +778,13 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
           <div className="header-brand-text">
             <h1 className="header-title header-title--studio">{STUDIO_APP_TITLE}</h1>
             <p className="header-tagline header-tagline--studio">{studioSubtitle}</p>
-            <div className="header-billing-row">
-              <a className="header-admin-link" href="/admin" target="_blank" rel="noreferrer">
-                管理后台
-              </a>
-            </div>
+            {showStudioAdminNav ? (
+              <div className="header-billing-row">
+                <a className="header-admin-link" href="/admin" target="_blank" rel="noreferrer">
+                  管理后台
+                </a>
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="header-trailing header-trailing--studio">
