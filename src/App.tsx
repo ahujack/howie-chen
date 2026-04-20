@@ -767,8 +767,8 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   }, [freeTierBump, billingKeyDraft])
 
   const showWorkbenchLayout = !hasUserMessage && !diagMode
-  /** 诊断首轮仅保留底栏输入；人设/模式/开关/芯片与首屏工作台一致，收进「高级设置」 */
-  const showFullDockChrome = !showWorkbenchLayout && !(diagMode && !hasUserMessage)
+  /** 诊断全流程不展示底部 dock；人设/模式/开关/芯片与首屏一致，仅「高级设置」 */
+  const showFullDockChrome = !showWorkbenchLayout && !diagMode
 
   return (
     <div className="chat-app">
@@ -1489,7 +1489,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
           </>
         ) : null}
 
-        {diagMode && !hasUserMessage ? (
+        {diagMode ? (
           <p className="dock-diag-min-hint">
             需要改联网、人设或补充说明？点右上角 <strong>⚙ 高级设置</strong>。
           </p>
