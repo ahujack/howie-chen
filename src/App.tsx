@@ -7,6 +7,22 @@ import {
   UserButton,
 } from '@clerk/clerk-react'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+const NARROW_STUDIO_MQ = '(max-width: 768px)'
+
+function useNarrowStudio() {
+  const [narrow, setNarrow] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia(NARROW_STUDIO_MQ).matches : false,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia(NARROW_STUDIO_MQ)
+    const sync = () => setNarrow(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+  return narrow
+}
 import { buildLocalReply } from './chatReply'
 import {
   CREATION_STAGE_OPTIONS,
@@ -129,6 +145,10 @@ function PersonaDockBar(props: {
   onSelectId: (id: string) => void
   onCreate: () => void
   onRefresh: () => void
+  /** 手机端隐藏 Key 账号角标，减少「管理员感」 */
+  hideKeyAccountBadge?: boolean
+  /** 手机端用更口语的标题 */
+  personaLabel?: string
 }) {
   const {
     variant,
@@ -139,11 +159,13 @@ function PersonaDockBar(props: {
     onSelectId,
     onCreate,
     onRefresh,
+    hideKeyAccountBadge,
+    personaLabel = '云端人设',
   } = props
   return (
     <div className="persona-bar">
-      <span>云端人设</span>
-      {variant === 'key' ? (
+      <span>{personaLabel}</span>
+      {variant === 'key' && !hideKeyAccountBadge ? (
         <span
           className="persona-bar-badge"
           title="使用计费 Key 作为云端账号；与谷歌登录可并存，服务端优先采用已登录身份"
@@ -179,6 +201,7 @@ function PersonaDockBar(props: {
 }
 
 function ChatApp({ getToken, hasClerk }: ChatAppProps) {
+  const isNarrowStudio = useNarrowStudio()
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
   const [webSearch, setWebSearch] = useState(false)
@@ -770,8 +793,16 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   /** 诊断全流程不展示底部 dock；人设/模式/开关/芯片与首屏一致，仅「高级设置」 */
   const showFullDockChrome = !showWorkbenchLayout && !diagMode
 
+  const personaDockNarrowProps = isNarrowStudio
+    ? ({ hideKeyAccountBadge: true, personaLabel: '我的人设（可选）' } as const)
+    : ({} as const)
+
   return (
-    <div className="chat-app">
+    <div
+      className={`chat-app${studioAdvancedOpen ? ' chat-app--advanced-open' : ''}${
+        isNarrowStudio ? ' chat-app--narrow-studio' : ''
+      }`}
+    >
       <header className="header-brand header-brand--studio">
         <div className="header-studio-left">
           <div className="studio-logo-mark" aria-hidden>
@@ -840,6 +871,29 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
 
       {studioAdvancedOpen ? (
         <div className="studio-advanced-panel" id="studio-advanced" role="region" aria-label="高级设置">
+          <div className="studio-advanced-panel-head">
+            <span className="studio-advanced-panel-head-title">
+              {studioVisitor ? 'Key 与说明' : '高级设置'}
+            </span>
+            <button
+              type="button"
+              className="studio-advanced-panel-close"
+              aria-label="关闭设置"
+              onClick={() => setStudioAdvancedOpen(false)}
+            >
+              ×
+            </button>
+          </div>
+
+          <details
+            key={isNarrowStudio ? 'n' : 'w'}
+            className={`studio-advanced-account-fold${!isNarrowStudio ? ' is-desktop-open' : ''}`}
+            {...(!isNarrowStudio ? { open: true } : {})}
+          >
+            <summary className="studio-advanced-account-summary">
+              账户、助理 Key、人设
+              <span className="studio-advanced-account-summary-hint">（一般用不到，点开展开）</span>
+            </summary>
       <section className="billing-credential-bar" aria-label="计费账户与 API Key">
         <div className="billing-credential-head">
           <span className="billing-credential-badge">计费登录</span>
@@ -949,6 +1003,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
               onSelectId={setSelectedPersonaId}
               onCreate={() => void createDefaultPersona()}
               onRefresh={() => void refreshPersonas()}
+              {...personaDockNarrowProps}
             />
           </SignedIn>
           <SignedOut>
@@ -962,6 +1017,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                 onSelectId={setSelectedPersonaId}
                 onCreate={() => void createDefaultPersona()}
                 onRefresh={() => void refreshPersonas()}
+                {...personaDockNarrowProps}
               />
             ) : null}
           </SignedOut>
@@ -976,8 +1032,10 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
           onSelectId={setSelectedPersonaId}
           onCreate={() => void createDefaultPersona()}
           onRefresh={() => void refreshPersonas()}
+          {...personaDockNarrowProps}
         />
       ) : null}
+          </details>
 
       <p className="studio-advanced-section-title">模型与检索</p>
       <div className="dock-tools dock-tools-toggles studio-advanced-toggles">
@@ -1142,31 +1200,61 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                     freeChatBlocked={freeChatBlocked}
                     hotTrendsLoading={hotTrendsLoading}
                     onHotTrends={() => void appendHotTrendsToInput()}
+                    collapseHowieScenarioGrid={isNarrowStudio}
                   />
-                  <div className="studio-direct-block">
-                    <span className="studio-direct-label">或者直接说</span>
-                    <textarea
-                      className="studio-direct-textarea"
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      disabled={busy || freeChatBlocked}
-                      placeholder="例：帮我写一条关于香港 DSE 的爆款视频脚本"
-                      rows={4}
-                      spellCheck={false}
-                    />
-                    <button
-                      type="button"
-                      className="studio-direct-send chip chip--cta"
-                      disabled={busy || !input.trim() || freeChatBlocked}
-                      onClick={() => void sendText(input)}
-                    >
-                      发送
-                    </button>
-                  </div>
-                  <details className="hero-details">
-                    <summary>我能做什么（说明）</summary>
-                    <pre className="hero-details-pre">{WELCOME_MESSAGE}</pre>
-                  </details>
+                  {isNarrowStudio ? (
+                    <details className="studio-mobile-more-fold">
+                      <summary>更多：自己写一句话 / 能力说明</summary>
+                      <div className="studio-direct-block">
+                        <span className="studio-direct-label">或者直接说</span>
+                        <textarea
+                          className="studio-direct-textarea"
+                          value={input}
+                          onChange={(e) => setInput(e.target.value)}
+                          disabled={busy || freeChatBlocked}
+                          placeholder="例：帮我写一条关于香港 DSE 的爆款视频脚本"
+                          rows={4}
+                          spellCheck={false}
+                        />
+                        <button
+                          type="button"
+                          className="studio-direct-send chip chip--cta"
+                          disabled={busy || !input.trim() || freeChatBlocked}
+                          onClick={() => void sendText(input)}
+                        >
+                          发送
+                        </button>
+                      </div>
+                      <pre className="hero-details-pre hero-details-pre--studio-more">{WELCOME_MESSAGE}</pre>
+                    </details>
+                  ) : (
+                    <>
+                      <div className="studio-direct-block">
+                        <span className="studio-direct-label">或者直接说</span>
+                        <textarea
+                          className="studio-direct-textarea"
+                          value={input}
+                          onChange={(e) => setInput(e.target.value)}
+                          disabled={busy || freeChatBlocked}
+                          placeholder="例：帮我写一条关于香港 DSE 的爆款视频脚本"
+                          rows={4}
+                          spellCheck={false}
+                        />
+                        <button
+                          type="button"
+                          className="studio-direct-send chip chip--cta"
+                          disabled={busy || !input.trim() || freeChatBlocked}
+                          onClick={() => void sendText(input)}
+                        >
+                          发送
+                        </button>
+                      </div>
+                      <details className="hero-details">
+                        <summary>我能做什么（说明）</summary>
+                        <pre className="hero-details-pre">{WELCOME_MESSAGE}</pre>
+                      </details>
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -1231,6 +1319,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                 onSelectId={setSelectedPersonaId}
                 onCreate={() => void createDefaultPersona()}
                 onRefresh={() => void refreshPersonas()}
+                {...personaDockNarrowProps}
               />
             </SignedIn>
             <SignedOut>
@@ -1244,6 +1333,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
                   onSelectId={setSelectedPersonaId}
                   onCreate={() => void createDefaultPersona()}
                   onRefresh={() => void refreshPersonas()}
+                  {...personaDockNarrowProps}
                 />
               ) : null}
             </SignedOut>
@@ -1258,6 +1348,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
             onSelectId={setSelectedPersonaId}
             onCreate={() => void createDefaultPersona()}
             onRefresh={() => void refreshPersonas()}
+            {...personaDockNarrowProps}
           />
         ) : null}
 
