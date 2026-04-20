@@ -1050,6 +1050,14 @@
   color: var(--text-dim);
 }
 
+.dock-diag-min-hint {
+  margin: 0 0 12px;
+  padding: 0 2px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
 .web-toggle {
   display: inline-flex;
   align-items: center;

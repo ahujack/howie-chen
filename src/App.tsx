@@ -767,6 +767,8 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
   }, [freeTierBump, billingKeyDraft])
 
   const showWorkbenchLayout = !hasUserMessage && !diagMode
+  /** 诊断首轮仅保留底栏输入；人设/模式/开关/芯片与首屏工作台一致，收进「高级设置」 */
+  const showFullDockChrome = !showWorkbenchLayout && !(diagMode && !hasUserMessage)
 
   return (
     <div className="chat-app">
@@ -1215,7 +1217,7 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
       </div>
 
       <div className="dock">
-        {!showWorkbenchLayout ? (
+        {showFullDockChrome ? (
           <>
         {hasClerk ? (
           <>
@@ -1485,6 +1487,12 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
           )}
         </div>
           </>
+        ) : null}
+
+        {diagMode && !hasUserMessage ? (
+          <p className="dock-diag-min-hint">
+            需要改联网、人设或补充说明？点右上角 <strong>⚙ 高级设置</strong>。
+          </p>
         ) : null}
 
         {showWorkbenchLayout ? (
