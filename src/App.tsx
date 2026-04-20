@@ -797,6 +797,50 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
     ? ({ hideKeyAccountBadge: true, personaLabel: '我的人设（可选）' } as const)
     : ({} as const)
 
+  const studioAdvancedChipsSection = useMemo(
+    () => (
+      <>
+        <p className="studio-advanced-section-title">备用快捷指令</p>
+        <div className="chips studio-advanced-chips">
+          {HOWIE_QUICK_CHIPS.map((c) => (
+            <button
+              key={c.label}
+              type="button"
+              className="chip"
+              disabled={busy || freeChatBlocked}
+              onClick={() => onQuickChipClick(c)}
+            >
+              {c.label}
+            </button>
+          ))}
+          {HK_QUICK_CHIPS.map((c) => (
+            <button
+              key={`hk-${c.label}`}
+              type="button"
+              className="chip"
+              disabled={busy || freeChatBlocked}
+              onClick={() => onQuickChipClick(c)}
+            >
+              {c.label}
+            </button>
+          ))}
+          {UNIVERSAL_QUICK_CHIPS.map((c) => (
+            <button
+              key={`uni-${c.label}`}
+              type="button"
+              className="chip"
+              disabled={busy || freeChatBlocked}
+              onClick={() => onQuickChipClick(c)}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      </>
+    ),
+    [busy, freeChatBlocked, onQuickChipClick],
+  )
+
   return (
     <div
       className={`chat-app${studioAdvancedOpen ? ' chat-app--advanced-open' : ''}${
@@ -1134,42 +1178,16 @@ function ChatApp({ getToken, hasClerk }: ChatAppProps) {
         spellCheck={false}
       />
 
-      <p className="studio-advanced-section-title">备用快捷指令</p>
-      <div className="chips studio-advanced-chips">
-        {HOWIE_QUICK_CHIPS.map((c) => (
-          <button
-            key={c.label}
-            type="button"
-            className="chip"
-            disabled={busy || freeChatBlocked}
-            onClick={() => onQuickChipClick(c)}
-          >
-            {c.label}
-          </button>
-        ))}
-        {HK_QUICK_CHIPS.map((c) => (
-          <button
-            key={`hk-${c.label}`}
-            type="button"
-            className="chip"
-            disabled={busy || freeChatBlocked}
-            onClick={() => onQuickChipClick(c)}
-          >
-            {c.label}
-          </button>
-        ))}
-        {UNIVERSAL_QUICK_CHIPS.map((c) => (
-          <button
-            key={`uni-${c.label}`}
-            type="button"
-            className="chip"
-            disabled={busy || freeChatBlocked}
-            onClick={() => onQuickChipClick(c)}
-          >
-            {c.label}
-          </button>
-        ))}
-      </div>
+      {isNarrowStudio ? (
+        <details className="studio-advanced-chips-fold">
+          <summary className="studio-advanced-chips-fold-summary">
+            全部快捷句<span className="studio-advanced-chips-fold-hint">（可选，点开展开）</span>
+          </summary>
+          {studioAdvancedChipsSection}
+        </details>
+      ) : (
+        studioAdvancedChipsSection
+      )}
         </div>
       ) : null}
 

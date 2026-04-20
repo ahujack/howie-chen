@@ -2214,6 +2214,34 @@
   color: var(--text-muted);
 }
 
+.studio-advanced-chips-fold {
+  margin-top: 8px;
+  border-radius: 14px;
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  padding: 8px 10px 12px;
+  background: rgba(15, 23, 42, 0.2);
+}
+
+.studio-advanced-chips-fold > .studio-advanced-chips-fold-summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 6px 4px 10px;
+}
+
+.studio-advanced-chips-fold > .studio-advanced-chips-fold-summary::-webkit-details-marker {
+  display: none;
+}
+
+.studio-advanced-chips-fold-hint {
+  font-weight: 500;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
 .studio-advanced-section-title {
   margin: 16px 0 8px;
   font-size: 0.7rem;
